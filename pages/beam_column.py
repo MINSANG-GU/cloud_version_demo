@@ -476,68 +476,97 @@ def apply_surya_ocr():
     try:
         import json
         from PIL import Image
-        from surya.ocr import run_ocr
-        from surya.model.detection.model import load_model as load_det_model, load_processor as load_det_processor
-        from surya.model.recognition.model import load_model as load_rec_model, load_processor as load_rec_processor
         
-        st.info("Python API 방식으로 OCR 실행")
+        st.info("Surya 모듈 구조 확인 중...")
         
-        # 모델 로드
-        st.info("모델 로딩 중...")
+        # 다양한 import 경로 시도
+        try:
+            from surya.ocr import run_ocr
+            st.info("surya.ocr import 성공")
+        except ImportError as e:
+            st.error(f"surya.ocr import 실패: {e}")
+            return
+        
+        # 모델 로드 함수들 찾기
+        try:
+            from surya.model.detection.model import load_model as load_det_model
+            from surya.model.detection.processor import load_processor as load_det_processor
+            st.info("detection 모델 import 성공")
+        except ImportError:
+            try:
+                from surya.detection import load_model as load_det_model
+                from surya.detection import load_processor as load_det_processor
+                st.info("detection 대체 import 성공")
+            except ImportError as e:
+                st.error(f"detection import 실패: {e}")
+                return
+        
+        try:
+            from surya.model.recognition.model import load_model as load_rec_model
+            from surya.model.recognition.processor import load_processor as load_rec_processor
+            st.info("recognition 모델 import 성공")
+        except ImportError:
+            try:
+                from surya.recognition import load_model as load_rec_model
+                from surya.recognition import load_processor as load_rec_processor
+                st.info("recognition 대체 import 성공")
+            except ImportError as e:
+                st.warning(f"recognition import 실패: {e}")
+                # recognition 없이 detection만 시도
+                try:
+                    from surya.detection import batch_text_detection
+                    st.info("detection only 모드로 시도")
+                    return apply_detection_only()
+                except ImportError:
+                    st.error("모든 import 실패")
+                    return
+        
+        # 간단한 OCR 시도
+        st.info("모델 로딩 시도...")
         det_model = load_det_model()
         det_processor = load_det_processor()
         rec_model = load_rec_model()
         rec_processor = load_rec_processor()
-        st.info("모델 로딩 완료")
         
+        st.info("OCR 실행...")
         image_files = [f for f in os.listdir(plain_text_folder) if f.endswith('.png')]
         
-        for image_file in image_files[:1]:  # 첫 번째만 테스트
-            image_path = os.path.join(plain_text_folder, image_file)
-            st.info(f"처리 중: {image_file}")
+        if image_files:
+            test_image = image_files[0]
+            image_path = os.path.join(plain_text_folder, test_image)
+            image = Image.open(image_path).convert('RGB')
             
-            # 이미지 로드
-            image = Image.open(image_path)
-            if image.mode != 'RGB':
-                image = image.convert('RGB')
-            
-            # OCR 실행 (올바른 매개변수 전달)
+            # OCR 실행
             results = run_ocr(
                 images=[image],
-                langs=['en'],  # 언어 설정
+                langs=['en'],
                 det_model=det_model,
                 det_processor=det_processor,
                 rec_model=rec_model,
                 rec_processor=rec_processor
             )
             
-            # 결과 저장
-            output_filename = f"{os.path.splitext(image_file)[0]}.json"
-            output_path = os.path.join(surya_output_folder, output_filename)
-            
-            # 결과를 기존 형식과 맞춰서 저장
-            result_json = {
-                os.path.splitext(image_file)[0]: [
-                    {
-                        "text_lines": [
-                            {
-                                "text": line.text,
-                                "bbox": line.bbox.tolist() if hasattr(line.bbox, 'tolist') else line.bbox
-                            } for line in results[0]
-                        ]
-                    }
-                ]
-            }
-            
-            with open(output_path, 'w', encoding='utf-8') as f:
-                json.dump(result_json, f, ensure_ascii=False, indent=2)
-            
-            st.success(f"Python API로 처리 완료: {image_file}")
+            st.success(f"OCR 성공: {len(results)} 결과")
             
     except Exception as e:
-        st.error(f"Python API 오류: {str(e)}")
-        import traceback
-        st.error(f"상세 오류: {traceback.format_exc()}")
+        st.error(f"API 오류: {str(e)}")
+        
+        # 최후 수단: 간단한 API 호출 시도
+        try:
+            st.info("간단한 API 호출 시도...")
+            from surya.ocr import run_ocr
+            
+            image_files = [f for f in os.listdir(plain_text_folder) if f.endswith('.png')]
+            if image_files:
+                image_path = os.path.join(plain_text_folder, image_files[0])
+                image = Image.open(image_path).convert('RGB')
+                
+                # 최소한의 매개변수로 호출
+                results = run_ocr([image])
+                st.success("간단한 API 호출 성공")
+                
+        except Exception as e2:
+            st.error(f"간단한 API도 실패: {e2}")
 
 
 
