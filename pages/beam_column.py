@@ -284,7 +284,7 @@ def process_uploaded_images_with_correction(uploaded_pdfs):
 
         # PDF → PNG 변환
         status.text(f"📄 {pdf.name} 변환 중...")
-        pages = convert_from_bytes(pdf.getvalue(), dpi=300, poppler_path=poppler_path)
+        pages = convert_from_bytes(pdf.getvalue(), dpi=300)
         
         current_pdf_images = []
         for pg, img in enumerate(pages):
