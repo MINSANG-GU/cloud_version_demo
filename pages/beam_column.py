@@ -472,7 +472,7 @@ def apply_yolo_on_images(image_paths=None):
 
 
 # ✅ 3. Surya OCR 적용 (진행상황 + 캐시 확인 + 결과 이동)
-def apply_surya():
+def apply_surya_ocr():
     try:
         import subprocess
         import os
