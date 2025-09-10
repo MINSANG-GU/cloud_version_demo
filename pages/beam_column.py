@@ -474,93 +474,64 @@ def apply_yolo_on_images(image_paths=None):
 # ✅ 3. Surya OCR 적용 (진행상황 + 캐시 확인 + 결과 이동)
 def apply_surya_ocr():
     try:
-        import subprocess
         import os
+        import json
+        from PIL import Image
         
-        st.info("Surya GUI 방식으로 OCR 실행...")
+        # 메모리 사용량 최소화
+        os.environ['RECOGNITION_BATCH_SIZE'] = '1'
+        os.environ['DETECTOR_BATCH_SIZE'] = '1'
+        os.environ['TORCH_DEVICE'] = 'cpu'
         
-        # surya_gui 명령어 확인
-        try:
-            result = subprocess.run(["surya_gui", "--help"], 
-                                  capture_output=True, text=True, timeout=10)
-            st.info(f"surya_gui 명령어 존재: {result.returncode}")
-        except subprocess.TimeoutExpired:
-            st.error("surya_gui도 timeout 발생")
+        st.info("Surya 0.9.0 API 방식으로 OCR 실행...")
+        
+        # 0.9.0 방식의 Predictor 사용
+        from surya.recognition import RecognitionPredictor
+        from surya.detection import DetectionPredictor
+        
+        st.info("Predictor 객체 생성 중...")
+        recognition_predictor = RecognitionPredictor()
+        detection_predictor = DetectionPredictor()
+        st.success("Predictor 생성 완료!")
+        
+        image_files = [f for f in os.listdir(plain_text_folder) if f.endswith('.png')]
+        if not image_files:
+            st.error("처리할 이미지가 없습니다")
             return False
-        except FileNotFoundError:
-            st.error("surya_gui 명령어를 찾을 수 없음")
-            return False
         
-        # 또는 Python에서 직접 호출
-        try:
-            st.info("Python에서 surya_gui 모듈 import 시도...")
-            
-            # surya_gui의 내부 함수들을 직접 사용
-            import surya
-            
-            # GUI 앱의 핵심 기능 찾기
-            gui_modules = [
-                'surya.scripts.gui',
-                'surya.gui', 
-                'surya.streamlit_app',
-                'surya.app'
-            ]
-            
-            for module_name in gui_modules:
-                try:
-                    module = __import__(module_name, fromlist=[''])
-                    functions = [attr for attr in dir(module) if not attr.startswith('_')]
-                    st.info(f"{module_name} 함수들: {functions}")
-                    
-                    # OCR 관련 함수 찾기
-                    ocr_funcs = [f for f in functions if 'ocr' in f.lower()]
-                    if ocr_funcs:
-                        st.success(f"OCR 함수 발견: {ocr_funcs}")
-                        
-                except ImportError:
-                    continue
-                    
-        except Exception as e:
-            st.error(f"GUI 모듈 탐색 실패: {e}")
-            
-        return False
+        test_image = image_files[0]
+        image_path = os.path.join(plain_text_folder, test_image)
+        
+        image = Image.open(image_path)
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
+        
+        st.info("OCR 실행 중...")
+        
+        # 0.9.0 API 호출
+        predictions = recognition_predictor([image], det_predictor=detection_predictor)
+        
+        st.success("OCR 완료!")
+        
+        # 결과 저장 (0.9.0 형식에 맞춰)
+        output_filename = f"{os.path.splitext(test_image)[0]}.json"
+        output_path = os.path.join(surya_output_folder, output_filename)
+        
+        # 결과 구조 확인 후 저장
+        result_json = {
+            os.path.splitext(test_image)[0]: predictions
+        }
+        
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(result_json, f, ensure_ascii=False, indent=2, default=str)
+        
+        st.success("Surya 0.9.0 OCR 완료!")
+        return True
         
     except Exception as e:
-        st.error(f"Surya GUI 방식 오류: {e}")
-        return False
-
-def check_surya_gui_availability():
-    """surya_gui 사용 가능 여부 확인"""
-    try:
-        import shutil
-        
-        # 명령어 확인
-        surya_gui_path = shutil.which("surya_gui")
-        if surya_gui_path:
-            st.success(f"surya_gui 발견: {surya_gui_path}")
-            return True
-        else:
-            st.warning("surya_gui 명령어 없음")
-            
-            # surya 패키지에서 GUI 관련 모듈 찾기
-            try:
-                import surya
-                import os
-                surya_path = os.path.dirname(surya.__file__)
-                
-                # GUI 관련 파일 찾기
-                for root, dirs, files in os.walk(surya_path):
-                    for file in files:
-                        if 'gui' in file.lower() or 'streamlit' in file.lower():
-                            st.info(f"GUI 관련 파일: {os.path.join(root, file)}")
-                            
-            except Exception as e:
-                st.error(f"GUI 파일 검색 실패: {e}")
-                
-        return False
-        
-    except Exception as e:
-        st.error(f"GUI 확인 오류: {e}")
+        st.error(f"Surya 0.9.0 오류: {str(e)}")
+        import traceback
+        st.error(f"상세: {traceback.format_exc()}")
         return False
 
         
