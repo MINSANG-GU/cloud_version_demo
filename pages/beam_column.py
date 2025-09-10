@@ -478,7 +478,7 @@ def apply_surya_ocr():
     import subprocess
     
 
-
+    os.makedirs(surya_output_folder, exist_ok=True)
     # 기존 결과 확인
     existing_jsons = [f for f in os.listdir(surya_output_folder) if f.endswith(".json")]
     if existing_jsons:
