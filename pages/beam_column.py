@@ -474,35 +474,67 @@ def apply_yolo_on_images(image_paths=None):
 # ✅ 3. Surya OCR 적용 (진행상황 + 캐시 확인 + 결과 이동)
 def apply_surya_ocr():
     try:
-        # 0.8.3 버전에서 실제로 사용 가능한 함수들 확인
-        import surya
+        st.info("각 모듈의 실제 함수들 확인 중...")
         
-        # surya 패키지의 모든 하위 모듈 확인
-        import pkgutil
-        available_modules = []
-        for importer, modname, ispkg in pkgutil.iter_modules(surya.__path__, surya.__name__ + "."):
-            available_modules.append(modname)
+        # 각 모듈을 직접 import해서 함수 확인
+        modules_to_check = [
+            'surya.detection',
+            'surya.recognition', 
+            'surya.ocr',
+            'surya.settings'
+        ]
         
-        st.info(f"사용 가능한 surya 모듈들: {available_modules}")
-        
-        # 각 모듈에서 load 관련 함수 찾기
-        for module_name in available_modules:
+        for module_name in modules_to_check:
             try:
                 module = __import__(module_name, fromlist=[''])
-                functions = [name for name in dir(module) if 'load' in name.lower()]
-                if functions:
-                    st.info(f"{module_name}의 함수들: {functions}")
-            except:
-                continue
+                all_attrs = [attr for attr in dir(module) if not attr.startswith('_')]
+                st.info(f"{module_name} 속성들: {all_attrs}")
                 
-        # CLI 방식이 작동하지 않으므로 일단 OCR 단계 건너뛰기
-        st.warning("현재 Streamlit Cloud 환경에서 surya OCR 실행에 제약이 있습니다.")
-        st.info("OCR 단계를 건너뛰고 다음 단계를 테스트하거나, 로컬에서 생성된 OCR 결과를 사용하세요.")
+                # load 관련 함수 특별히 확인
+                load_funcs = [attr for attr in all_attrs if 'load' in attr.lower()]
+                if load_funcs:
+                    st.success(f"{module_name}의 load 함수들: {load_funcs}")
+                    
+            except Exception as e:
+                st.error(f"{module_name} import 실패: {e}")
         
-        return None
+        # surya.ocr 모듈의 run_ocr 함수 시그니처 다시 확인
+        try:
+            from surya.ocr import run_ocr
+            import inspect
+            sig = inspect.signature(run_ocr)
+            st.info(f"run_ocr 시그니처: {sig}")
+            
+            # 매개변수별 기본값 확인
+            for param_name, param in sig.parameters.items():
+                st.info(f"- {param_name}: {param.default if param.default != inspect.Parameter.empty else 'required'}")
+                
+        except Exception as e:
+            st.error(f"run_ocr 확인 실패: {e}")
         
+        # 마지막 시도: surya.settings에서 기본 모델 경로 확인
+        try:
+            import surya.settings as settings
+            settings_attrs = [attr for attr in dir(settings) if not attr.startswith('_')]
+            st.info(f"Settings 속성들: {settings_attrs}")
+            
+            # 모델 관련 설정 찾기
+            for attr in settings_attrs:
+                value = getattr(settings, attr)
+                if 'model' in attr.lower() or 'path' in attr.lower():
+                    st.info(f"설정: {attr} = {value}")
+                    
+        except Exception as e:
+            st.error(f"Settings 확인 실패: {e}")
+            
     except Exception as e:
-        st.error(f"0.8.3 API 확인 오류: {str(e)}")
+        st.error(f"모듈 확인 전체 오류: {str(e)}")
+        
+        # 정말 마지막: OCR 없이 진행
+        st.warning("⚠️ OCR 기능을 건너뛰고 다음 단계로 진행하시겠습니까?")
+        if st.button("OCR 건너뛰고 계속"):
+            st.info("OCR 단계를 건너뛰었습니다. 다음 단계를 진행하세요.")
+            return "skipped"
 
 
         
