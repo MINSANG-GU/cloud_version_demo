@@ -269,7 +269,6 @@ def correct_image_simple(image_path):
 
 def process_uploaded_images_with_correction(uploaded_pdfs):
     """PDF 처리 + 자동 이미지 보정 통합"""
-    poppler_path = r"C:\Program Files (x86)\Release-24.08.0-0 (1)\poppler-24.08.0\Library\bin"
     image_paths = []
     progress_bar = st.progress(0)
     status = st.empty()
@@ -310,7 +309,7 @@ def process_uploaded_images_with_correction(uploaded_pdfs):
 
         # PDF → PNG 변환
         status.text(f"📄 {pdf.name} 변환 중...")
-        pages = convert_from_bytes(pdf.getvalue(), dpi=300, poppler_path=poppler_path)
+        pages = convert_from_bytes(pdf.getvalue(), dpi=300)
         
         current_pdf_images = []
         for pg, img in enumerate(pages):
