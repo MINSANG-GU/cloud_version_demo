@@ -259,36 +259,14 @@ def get_pdf_page_count(pdf_bytes):
         return 1
 
 def correct_image_simple(image_path):
-    """간단하고 빠른 이미지 보정"""
+    """이미지 품질 향상만 (회전 보정 제거)"""
     img = cv2.imread(image_path)
     if img is None:
         return False
     
-    # 1. 기울기 보정
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    edges = cv2.Canny(gray, 30, 100, apertureSize=3)
-    lines = cv2.HoughLines(edges, 1, np.pi/180, threshold=100)
+    # 기울기 보정 제거!
     
-    if lines is not None:
-        angles = []
-        for line in lines:
-            rho, theta = line[0]
-            angle = theta * 180 / np.pi
-            if angle < 45 or angle > 135:
-                if angle > 135:
-                    angle = angle - 180
-                angles.append(angle)
-        
-        if angles:
-            median_angle = np.median(angles)
-            if abs(median_angle) > 0.5:  # 0.5도 이상일 때만 보정
-                (h, w) = img.shape[:2]
-                center = (w // 2, h // 2)
-                M = cv2.getRotationMatrix2D(center, median_angle, 1.0)
-                img = cv2.warpAffine(img, M, (w, h), flags=cv2.INTER_CUBIC,
-                                   borderMode=cv2.BORDER_CONSTANT, borderValue=(255, 255, 255))
-    
-    # 2. 간단한 품질 향상
+    # 2. 간단한 품질 향상만
     # 노이즈 제거
     img = cv2.bilateralFilter(img, 9, 75, 75)
     
