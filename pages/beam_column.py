@@ -476,83 +476,99 @@ def apply_surya_ocr():
     try:
         import json
         from PIL import Image
-        from surya.detection import batch_text_detection
-        from surya.recognition import batch_recognition
-        from surya.ocr import run_ocr
         
-        st.info("Surya 0.8.3 배치 함수 방식으로 OCR 실행...")
+        st.info("모델 로드 함수 직접 찾기...")
         
-        # 이미지 준비
-        image_files = [f for f in os.listdir(plain_text_folder) if f.endswith('.png')]
-        if not image_files:
-            st.error("처리할 이미지가 없습니다")
-            return
+        # 가능한 모델 로드 위치들 확인
+        possible_load_locations = [
+            'surya.model.detection.segformer',
+            'surya.model.recognition.model', 
+            'surya.model.detection.model',
+            'surya.model.recognition.processor',
+            'surya.model.detection.processor',
+            'surya.model',
+            'surya.detection',
+            'surya.recognition'
+        ]
         
-        test_image = image_files[0]
-        image_path = os.path.join(plain_text_folder, test_image)
+        det_model = None
+        det_processor = None
+        rec_model = None  
+        rec_processor = None
         
-        image = Image.open(image_path)
-        if image.mode != 'RGB':
-            image = image.convert('RGB')
-        
-        st.info("이미지 로드 완료, OCR 실행 중...")
-        
-        # 방법 1: batch 함수들 직접 사용
-        try:
-            st.info("Detection 실행 중...")
-            det_results = batch_text_detection([image])
-            st.success(f"Detection 완료: {len(det_results)} 결과")
-            
-            if det_results:
-                st.info("Recognition 실행 중...")
-                langs = [["en"]]  # 이중 리스트
-                rec_results = batch_recognition([image], det_results, langs)
-                st.success(f"Recognition 완료: {len(rec_results)} 결과")
-                
-                # 결과 저장
-                output_filename = f"{os.path.splitext(test_image)[0]}.json"
-                output_path = os.path.join(surya_output_folder, output_filename)
-                
-                # OCR 결과를 기존 형식으로 변환
-                result_json = {
-                    os.path.splitext(test_image)[0]: [{
-                        "text_lines": [
-                            {
-                                "text": str(line.text if hasattr(line, 'text') else line),
-                                "bbox": line.bbox.tolist() if hasattr(line, 'bbox') and hasattr(line.bbox, 'tolist') else [0, 0, 100, 100]
-                            } for line in rec_results[0]
-                        ]
-                    }]
-                }
-                
-                with open(output_path, 'w', encoding='utf-8') as f:
-                    json.dump(result_json, f, ensure_ascii=False, indent=2)
-                
-                st.success("배치 함수 방식으로 OCR 완료!")
-                return True
-                
-        except Exception as batch_error:
-            st.error(f"배치 함수 방식 실패: {batch_error}")
-            
-            # 방법 2: run_ocr에 None 모델 전달해서 내부 로딩 시도
+        for location in possible_load_locations:
             try:
-                st.info("run_ocr 내부 모델 로딩 시도...")
-                results = run_ocr(
-                    images=[image],
-                    langs=[["en"]],
-                    det_model=None,  # 내부에서 로드하길 기대
-                    det_processor=None,
-                    rec_model=None,
-                    rec_processor=None
-                )
-                st.success("run_ocr 내부 로딩 성공!")
+                module = __import__(location, fromlist=[''])
+                attrs = [attr for attr in dir(module) if not attr.startswith('_')]
+                load_funcs = [attr for attr in attrs if 'load' in attr.lower()]
                 
-            except Exception as run_ocr_error:
-                st.error(f"run_ocr도 실패: {run_ocr_error}")
-                return False
+                if load_funcs:
+                    st.info(f"{location}에서 load 함수 발견: {load_funcs}")
+                    
+                    # 실제 load 함수 시도
+                    for func_name in load_funcs:
+                        try:
+                            func = getattr(module, func_name)
+                            if callable(func):
+                                st.info(f"{location}.{func_name} 시도...")
+                                result = func()
+                                st.success(f"{location}.{func_name} 성공!")
+                                
+                                # 모델 타입에 따라 할당
+                                if 'detection' in location and 'model' in func_name.lower():
+                                    det_model = result
+                                elif 'detection' in location and 'processor' in func_name.lower():
+                                    det_processor = result
+                                elif 'recognition' in location and 'model' in func_name.lower():
+                                    rec_model = result
+                                elif 'recognition' in location and 'processor' in func_name.lower():
+                                    rec_processor = result
+                                    
+                        except Exception as func_error:
+                            st.warning(f"{location}.{func_name} 실패: {func_error}")
+                            
+            except ImportError:
+                continue
+            except Exception as e:
+                st.warning(f"{location} 확인 실패: {e}")
         
+        # 로드된 모델들 확인
+        st.info(f"로드된 모델들:")
+        st.info(f"det_model: {type(det_model) if det_model else 'None'}")
+        st.info(f"det_processor: {type(det_processor) if det_processor else 'None'}")
+        st.info(f"rec_model: {type(rec_model) if rec_model else 'None'}")
+        st.info(f"rec_processor: {type(rec_processor) if rec_processor else 'None'}")
+        
+        # 모든 모델이 로드되었으면 OCR 실행
+        if all([det_model, det_processor, rec_model, rec_processor]):
+            st.info("모든 모델 로드 완료! OCR 실행...")
+            
+            image_files = [f for f in os.listdir(plain_text_folder) if f.endswith('.png')]
+            test_image = image_files[0]
+            image_path = os.path.join(plain_text_folder, test_image)
+            
+            image = Image.open(image_path).convert('RGB')
+            
+            from surya.ocr import run_ocr
+            results = run_ocr(
+                images=[image],
+                langs=[["en"]],
+                det_model=det_model,
+                det_processor=det_processor,
+                rec_model=rec_model,
+                rec_processor=rec_processor
+            )
+            
+            st.success("OCR 성공!")
+            return True
+            
+        else:
+            st.error("필요한 모델들을 모두 로드하지 못했습니다")
+            st.info("현재 Streamlit Cloud에서는 OCR 실행이 어려운 상황입니다")
+            return False
+            
     except Exception as e:
-        st.error(f"OCR 전체 오류: {str(e)}")
+        st.error(f"모델 로드 오류: {str(e)}")
         import traceback
         st.error(f"상세: {traceback.format_exc()}")
         return False
