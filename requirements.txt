@@ -1,6 +1,6 @@
 streamlit
 surya-ocr==0.8.3
-opencv-python-headless
+opencv-python-headless==4.8.1.78
 pdf2image
 numpy
 pandas
@@ -27,3 +27,4 @@ scipy
 scikit-learn
 joblib
 ultralytics
+
