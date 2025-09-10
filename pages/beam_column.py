@@ -473,285 +473,118 @@ def apply_yolo_on_images(image_paths=None):
 
 # ✅ 3. Surya OCR 적용 (진행상황 + 캐시 확인 + 결과 이동)
 
-
-def apply_yolo_on_images(image_paths=None):
+def apply_surya_ocr():
+    import os
+    import shutil
+    
     try:
-        st.info("YOLO 분석 시작 - 초기화 중...")
+
+        st.info(f"출력 폴더 확인: {surya_output_folder}")
+
+        # 기존 결과 확인
+        existing_jsons = [f for f in os.listdir(surya_output_folder) if f.endswith(".json")]
+        if existing_jsons:
+            st.info(f"이미 {len(existing_jsons)}개의 OCR 결과가 존재합니다. Surya OCR 생략.")
+            return
+
+        # plain_text_folder 존재 및 파일 확인
+        st.info(f"Plain text 폴더 확인: {plain_text_folder}")
+        if not os.path.exists(plain_text_folder):
+            st.error(f"Plain text 폴더가 존재하지 않음: {plain_text_folder}")
+            return
+            
+        image_files = [f for f in os.listdir(plain_text_folder) if f.endswith(('.jpg', '.png'))]
+        st.info(f"처리할 이미지 파일 수: {len(image_files)}")
         
-        # 디버깅: BASE_DIR 확인
-        st.info(f"BASE_DIR: {BASE_DIR}")
-        
-        raw_data_folder = os.path.join(BASE_DIR, "raw_data")
-        st.info(f"raw_data_folder: {raw_data_folder}")
-        
-        if image_paths is None:
-            st.info("image_paths가 None - raw_data_folder에서 이미지 검색 중...")
-            image_paths = [
-                os.path.join(raw_data_folder, f)
-                for f in os.listdir(raw_data_folder)
-                if f.lower().endswith('.png')
-            ]
-            st.info(f"발견된 이미지 수: {len(image_paths)}")
-            if image_paths:
-                st.info(f"첫 번째 이미지: {image_paths[0]}")
-        else:
-            st.info(f"전달받은 image_paths 수: {len(image_paths)}")
-        
-        # 디버깅: 폴더 생성 확인
-        folders_to_create = [plain_text_folder, figure_folder, table_folder]
-        for folder in folders_to_create:
-            os.makedirs(folder, exist_ok=True)
-            st.info(f"폴더 생성/확인: {folder}")
-        
-        results = {"plain_text": {}, "figure": {}, "table": {}}
-        
-        # 디버깅: 디바이스 확인
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        st.info(f"사용 디바이스: {device}")
-        
-        # 디버깅: 모델 상태 확인
-        try:
-            st.info("모델 상태 확인 중...")
-            model_info = f"모델 타입: {type(model)}"
-            st.info(model_info)
-        except Exception as e:
-            st.error(f"모델 접근 오류: {str(e)}")
-            return None
-        
+        if not image_files:
+            st.error("No files to apply OCR")
+            return
+
         progress_bar = st.progress(0)
         status_text = st.empty()
-        
-        for idx, img_path in enumerate(image_paths):
+        st.write("Running OCR... (threshold=0.5/0.3)")
+
+        successful_ocr = 0
+        failed_ocr = 0
+
+        for idx, image_file in enumerate(image_files):
             try:
-                st.info(f"이미지 {idx+1}/{len(image_paths)} 처리 중: {os.path.basename(img_path)}")
+                input_path = os.path.join(plain_text_folder, image_file)
+                st.info(f"OCR 처리 중 [{idx+1}/{len(image_files)}]: {image_file}")
                 
-                # 디버깅: 이미지 파일 존재 확인
-                if not os.path.exists(img_path):
-                    st.error(f"이미지 파일이 존재하지 않음: {img_path}")
+                # 파일 존재 확인
+                if not os.path.exists(input_path):
+                    st.error(f"파일이 존재하지 않음: {input_path}")
+                    failed_ocr += 1
                     continue
                 
-                # 디버깅: 모델 예측 시도
-                try:
-                    st.info(f"YOLO 예측 시작 - 이미지 크기: 1024, conf: 0.1, iou: 0.6")
-                    det = model.predict(img_path, imgsz=1024, conf=0.1, iou=0.6, device=device)[0]
-                    st.info(f"YOLO 예측 완료 - 검출된 박스 수: {len(det.boxes) if det.boxes else 0}")
-                except Exception as e:
-                    st.error(f"YOLO 예측 오류: {str(e)}")
-                    continue
+                command = ["surya_ocr", input_path]
+                result = subprocess.run(command, capture_output=True, text=True, timeout=60)
                 
-                boxes, names = det.boxes, det.names
+                # 결과 확인
+                if result.returncode == 0:
+                    successful_ocr += 1
+                    st.info(f"OCR 성공: {image_file}")
+                else:
+                    failed_ocr += 1
+                    st.error(f"OCR 실패 [{image_file}] - 반환코드: {result.returncode}")
+                    if result.stderr:
+                        st.error(f"오류 메시지: {result.stderr}")
+
+                stderr = result.stderr.strip()
+                if stderr and all(x not in stderr for x in ["Detecting bboxes", "Recognizing Text"]):
+                    st.warning(f"오류: {image_file} → {stderr}")
+
+                progress = int((idx + 1) / len(image_files) * 100)
+                progress_bar.progress(progress)
+                status_text.write(f"running ocr: {image_file} ({progress}%)")
                 
-                # 디버깅: 이미지 로드 확인
-                try:
-                    img = cv2.imread(img_path)
-                    if img is None:
-                        st.error(f"cv2로 이미지 로드 실패: {img_path}")
-                        continue
-                    H, W = img.shape[:2]
-                    st.info(f"이미지 크기: {W}x{H}")
-                except Exception as e:
-                    st.error(f"이미지 로드 오류: {str(e)}")
-                    continue
-                
-                plain_boxes, fig_boxes, tbl_boxes = [], [], []
-                
-                # 디버깅: 박스 분류
-                detected_classes = {}
-                for b in boxes:
-                    cls_id, conf = int(b.cls.item()), b.conf.item()
-                    name = names[cls_id]
-                    x1, y1, x2, y2 = map(int, b.xyxy[0].tolist())
-                    
-                    detected_classes[name] = detected_classes.get(name, 0) + 1
-                    
-                    if (name == "plain text" and conf >= CONFIDENCE_THRESHOLDS["plain text"] and (y2 - y1) >= MIN_PLAIN_TEXT_HEIGHT):
-                        plain_boxes.append((x1, y1, x2, y2))
-                    elif name == "figure" and conf >= CONFIDENCE_THRESHOLDS["figure"]:
-                        fig_boxes.append((x1, y1, x2, y2))
-                    elif name == "table" and conf >= CONFIDENCE_THRESHOLDS["table"]:
-                        tbl_boxes.append((x1, y1, x2, y2))
-                
-                st.info(f"검출된 클래스별 개수: {detected_classes}")
-                st.info(f"필터링 후 - plain_text: {len(plain_boxes)}, figure: {len(fig_boxes)}, table: {len(tbl_boxes)}")
-                
-                # 기존 로직 계속...
-                filtered = [b for i, b in enumerate(fig_boxes)
-                            if all(not (ox1 <= b[0] <= b[2] <= ox2 and oy1 <= b[1] <= b[3] <= oy2)
-                                   for j, (ox1, oy1, ox2, oy2) in enumerate(fig_boxes) if i != j)]
-                
-                if filtered:
-                    x1, y1, x2, y2 = sorted(filtered, key=lambda b: b[1])[0] if len(filtered) > 1 else filtered[0]
-                    x1p, y1p = max(x1 - LEFT_PADDING, 0), max(y1 - TOP_PADDING, 0)
-                    x2p, y2p = min(x2 + RIGHT_PADDING, W), min(y2 + BOTTOM_PADDING, H)
-                    crop = img[y1p:y2p, x1p:x2p]
-                    out_fig = os.path.join(figure_folder, f"SCD_{idx+1}_figure.png")
-                    
-                    try:
-                        cv2.imwrite(out_fig, crop)
-                        results["figure"][img_path] = out_fig
-                        st.info(f"Figure 저장 성공: {out_fig}")
-                    except Exception as e:
-                        st.error(f"Figure 저장 오류: {str(e)}")
-                
-                for i, (x1, y1, x2, y2) in enumerate(plain_boxes):
-                    PLAIN_TEXT_MARGIN = 50
-                    x1_margin = max(x1 - PLAIN_TEXT_MARGIN, 0)
-                    y1_margin = max(y1 - PLAIN_TEXT_MARGIN, 0) 
-                    x2_margin = min(x2 + PLAIN_TEXT_MARGIN, W)
-                    y2_margin = min(y2 + PLAIN_TEXT_MARGIN, H)
-                    
-                    crop = img[y1_margin:y2_margin, x1_margin:x2_margin]
-                    out_txt = os.path.join(plain_text_folder, f"SCD_{idx+1}_plain_{i}.png")
-                    
-                    try:
-                        cv2.imwrite(out_txt, crop)
-                        results["plain_text"].setdefault(img_path, []).append(out_txt)
-                        st.info(f"Plain text 저장 성공: {out_txt}")
-                    except Exception as e:
-                        st.error(f"Plain text 저장 오류: {str(e)}")
-                
-                for i, (x1, y1, x2, y2) in enumerate(tbl_boxes):
-                    crop = img[y1:y2, x1:x2]
-                    out_tbl = os.path.join(table_folder, f"SCD_{idx+1}_table_{i}.png")
-                    
-                    try:
-                        cv2.imwrite(out_tbl, crop)
-                        results["table"].setdefault(img_path, []).append(out_tbl)
-                        st.info(f"Table 저장 성공: {out_tbl}")
-                    except Exception as e:
-                        st.error(f"Table 저장 오류: {str(e)}")
-                
-                progress_bar.progress((idx + 1) / len(image_paths))
-                status_text.text(f"YOLO 분석 중: {os.path.basename(img_path)}")
-                
+            except subprocess.TimeoutExpired:
+                st.error(f"OCR 타임아웃: {image_file}")
+                failed_ocr += 1
             except Exception as e:
-                st.error(f"이미지 {idx+1} 처리 중 오류: {str(e)}")
-                continue
-        
+                st.error(f"OCR 처리 오류 [{image_file}]: {str(e)}")
+                failed_ocr += 1
+
         progress_bar.empty()
-        st.success("Complete!")
-        st.markdown("**results summary")
-        st.json({k: list(v.values())[:3] if isinstance(v, dict) else v for k, v in results.items()})
-        return results
+        status_text.write("OCR complete! Result moving...")
+        
+        st.info(f"OCR 완료 - 성공: {successful_ocr}, 실패: {failed_ocr}")
+
+        # 결과 파일 이동
+        st.info(f"Surya 결과 폴더 확인: {SURYA_RESULTS_FOLDER}")
+        if not os.path.exists(SURYA_RESULTS_FOLDER):
+            st.error(f"Surya 결과 폴더가 존재하지 않음: {SURYA_RESULTS_FOLDER}")
+            return
+
+        moved, skipped = 0, 0
+        for folder_name in os.listdir(SURYA_RESULTS_FOLDER):
+            folder_path = os.path.join(SURYA_RESULTS_FOLDER, folder_name)
+            if os.path.isdir(folder_path):
+                json_file = os.path.join(folder_path, "results.json")
+                if os.path.exists(json_file):
+                    dst_file = os.path.join(surya_output_folder, f"{folder_name}.json")
+                    try:
+                        shutil.move(json_file, dst_file)
+                        moved += 1
+                        st.info(f"파일 이동 성공: {folder_name}.json")
+                    except Exception as e:
+                        st.error(f"Move Error: {folder_name} → {e}")
+                else:
+                    skipped += 1
+                    st.warning(f"results.json 파일이 없음: {folder_name}")
+
+        st.success(f"OCR 결과 {moved}개 이동 완료 ({skipped}개는 누락됨)")
         
     except Exception as e:
-        st.error(f"apply_yolo_on_images 전체 오류: {str(e)}")
+        st.error(f"apply_surya_ocr 전체 오류: {str(e)}")
         import traceback
         st.error(f"상세 오류: {traceback.format_exc()}")
-        return None
+
+
+
+
         
-# def apply_surya_ocr():
-#     import os
-#     import shutil
-#     import cv2
-#     import numpy as np
-#     from PIL import Image, ImageEnhance, ImageFilter
-    
-#     SURYA_RESULTS_FOLDER = r"D:\streamlit_app\app\results\surya"
-#     os.makedirs(surya_output_folder, exist_ok=True)
-
-#     # ✅ 결과 JSON 파일이 이미 존재하면 재실행 생략
-#     existing_jsons = [f for f in os.listdir(surya_output_folder) if f.endswith(".json")]
-#     if existing_jsons:
-#         st.info(f"ℹ️ 이미 {len(existing_jsons)}개의 OCR 결과가 존재합니다. Surya OCR 생략.")
-#         return
-
-#     image_files = [f for f in os.listdir(plain_text_folder) if f.endswith(('.jpg', '.png'))]
-#     if not image_files:
-#         st.error("❌ No files to apply OCR")
-#         return
-
-#     progress_bar = st.progress(0)
-#     status_text = st.empty()
-#     st.write("🔍OCR 전처리 + Surya OCR 실행 중...")
-
-#     # ✅ OCR 전처리 함수
-#     def enhance_image_for_ocr(image_path):
-#         """OCR 인식률 향상을 위한 이미지 전처리"""
-#         try:
-#             # PIL로 이미지 로드
-#             with Image.open(image_path) as pil_img:
-                
-#                 # 1️⃣ 대비 향상 (텍스트와 배경 구분도 증가)
-#                 enhancer = ImageEnhance.Contrast(pil_img)
-#                 pil_img = enhancer.enhance(1.3)  # 30% 대비 증가
-                
-#                 # 2️⃣ 선명도 향상
-#                 enhancer = ImageEnhance.Sharpness(pil_img)
-#                 pil_img = enhancer.enhance(1.5)  # 20% 선명도 증가
-                
-#                 # OpenCV로 변환해서 고급 전처리
-#                 img_array = np.array(pil_img.convert('RGB'))
-#                 img_cv = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
-                
-#                 # 3️⃣ 그레이스케일 변환
-#                 gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
-                
-#                 # 4️⃣ 노이즈 제거 (가우시안 블러 + 언샤프 마스킹)
-#                 blurred = cv2.GaussianBlur(gray, (3, 3), 0)
-#                 sharpened = cv2.addWeighted(gray, 1.5, blurred, -0.5, 0)
-                
-#                 # 5️⃣ 적응형 임계값 (텍스트 이진화)
-#                 # - 작은 텍스트에 효과적
-#                 adaptive_thresh = cv2.adaptiveThreshold(
-#                     sharpened, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-#                     cv2.THRESH_BINARY, 11, 2
-#                 )
-                
-#                 # 6️⃣ 모폴로지 연산 (텍스트 연결선 복원)
-#                 kernel = np.ones((2,2), np.uint8)
-#                 cleaned = cv2.morphologyEx(adaptive_thresh, cv2.MORPH_CLOSE, kernel)
-                
-#                 # 다시 PIL로 변환해서 저장
-#                 final_img = Image.fromarray(cleaned)
-#                 final_img.save(image_path, quality=95)
-                
-#                 return True
-                
-#         except Exception as e:
-#             st.warning(f"⚠️ 전처리 실패: {os.path.basename(image_path)} → {e}")
-#             return False
-
-#     # ✅ 각 이미지 전처리 + OCR 실행
-#     for idx, image_file in enumerate(image_files):
-#         input_path = os.path.join(plain_text_folder, image_file)
-        
-#         # 전처리 실행
-#         preprocessing_success = enhance_image_for_ocr(input_path)
-#         preprocessing_status = "✅ 전처리완료" if preprocessing_success else "⚠️ 전처리실패"
-        
-#         # Surya OCR 실행
-#         command = ["surya_ocr", input_path]
-#         result = subprocess.run(command, capture_output=True, text=True)
-
-#         stderr = result.stderr.strip()
-#         if stderr and all(x not in stderr for x in ["Detecting bboxes", "Recognizing Text"]):
-#             st.warning(f"⚠️ OCR 오류: {image_file} → {stderr}")
-
-#         progress = int((idx + 1) / len(image_files) * 100)
-#         progress_bar.progress(progress)
-#         status_text.write(f"🖼️ {image_file} ({progress}%) - {preprocessing_status}")
-
-#     progress_bar.empty()
-#     status_text.write("✅ OCR complete! Result moving...")
-
-#     # ✅ 결과 파일 이동
-#     moved, skipped = 0, 0
-#     for folder_name in os.listdir(SURYA_RESULTS_FOLDER):
-#         folder_path = os.path.join(SURYA_RESULTS_FOLDER, folder_name)
-#         if os.path.isdir(folder_path):
-#             json_file = os.path.join(folder_path, "results.json")
-#             if os.path.exists(json_file):
-#                 dst_file = os.path.join(surya_output_folder, f"{folder_name}.json")
-#                 try:
-#                     os.rename(json_file, dst_file)
-#                     moved += 1
-#                 except Exception as e:
-#                     st.error(f"❌ Move Error: {folder_name} → {e}")
-#             else:
-#                 skipped += 1
-
-#     st.success(f"📁 OCR 결과 {moved}개 이동 완료 ({skipped}개는 누락됨)")
 
 
 
