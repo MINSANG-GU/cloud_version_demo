@@ -6,6 +6,7 @@ from PIL import Image as PILImage
 import xlsxwriter
 import os
 import torch
+os.environ['QT_QPA_PLATFORM'] = 'offscreen'
 import cv2
 import numpy as np
 import streamlit as st
@@ -45,23 +46,29 @@ from openpyxl import Workbook
 from collections import defaultdict
 from openpyxl.styles import Font, Alignment
 from openpyxl.worksheet.pagebreak import Break
+import sys, os
+import tempfile
+
 
 
 
 df_gt_scd_global = None
 df_gt_sd_global = None
 
+# sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# from config import get_base_dir, get_ocr_results_folder
+
+# # ✅ 저장 폴더 설정 (D:\TEST_Streamlit)
+# BASE_DIR = get_base_dir()
+# SURYA_RESULTS_FOLDER =get_ocr_results_folder()
 
 
-
-
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from app_config import get_base_dir, get_ocr_results_folder
-
-# ✅ 저장 폴더 설정 (D:\TEST_Streamlit)
-BASE_DIR = get_base_dir()
-SURYA_RESULTS_FOLDER =get_ocr_results_folder()
-
+if 'temp_dir' not in st.session_state:
+    st.session_state.temp_dir = tempfile.mkdtemp()
+    
+# ✅ 저장 폴더 설정 (임시 디렉토리 기반)
+BASE_DIR = st.session_state.temp_dir
+SURYA_RESULTS_FOLDER = os.path.join(BASE_DIR, "surya_results")
 
 
 
@@ -96,6 +103,33 @@ image_output_SD =os.path.join(BASE_DIR,"image_output_SD")
 
 
 
+raw_data_folder = os.path.join(BASE_DIR, "raw_data")            # 원본 이미지 저장
+plain_text_folder = os.path.join(BASE_DIR, "Plain_Texts")         # plain text 저장 폴더
+figure_folder = os.path.join(BASE_DIR, "Figures")                 # figure 저장 폴더
+table_folder = os.path.join(BASE_DIR, "Table")
+surya_output_folder = os.path.join(BASE_DIR, "Surya_output")        # OCR 결과 저장 폴더
+filtered_json_folder = os.path.join(BASE_DIR, "Filtered_Output")    # 필터링된 JSON 저장 폴더
+figure_ocr_output_folder = os.path.join(BASE_DIR, "Figure_OCR")      # Figure OCR 결과 저장 폴더
+figure_filtered_folder = os.path.join(BASE_DIR, "Figure_Filtered")    # Figure OCR 필터링된 결과
+figure_element_folder = os.path.join(BASE_DIR, "Figure_Element")     # RC Beam/Column 추출 데이터 저장
+visualized_results_folder = os.path.join(figure_ocr_output_folder, "visualized_results")  # 시각화 결과 저장
+OCR_Member_Extraction_folder = os.path.join(BASE_DIR, "MEMBER_EXTRACTION")
+Vertical_recog_folder = os.path.join(BASE_DIR, "Vertical_recog")
+Figure_Rectangles = os.path.join(BASE_DIR, "Figure_Rectangles")
+Figure_Rectangles_Binarized = os.path.join(BASE_DIR, "Figure_Rectangles_Binarized")
+YOLO_Rebar_Detection = os.path.join(BASE_DIR, "YOLO_Rebar_Detection")
+YOLO_Rebar_Detection_csv = os.path.join(BASE_DIR, "YOLO_Rebar_Detection_csv")
+Vertical_image = os.path.join(BASE_DIR, "vertical_iamge")
+Vertical_txt = os.path.join(BASE_DIR, "vertical_text")
+rotated_crop_folder = os.path.join(BASE_DIR, "rotated_img")
+Element_extraction = os.path.join(BASE_DIR, "Element_extraction")
+Table_OCR_Img = os.path.join(BASE_DIR, "Table_OCR_Img")
+Table_OCR_surya = os.path.join(BASE_DIR, "Table_OCR_surya")
+Table_OCR_surya_filter = os.path.join(BASE_DIR, "Table_OCR_surya_filter")
+image_output_SCD = os.path.join(BASE_DIR, "image_output_SCD")
+image_output_SD = os.path.join(BASE_DIR, "image_output_SD")
+
+# SD 관련 폴더들
 raw_data_folder_SD = os.path.join(BASE_DIR, "raw_data_SD")  
 table_extraction_SD = os.path.join(BASE_DIR, "table_extraction_SD")  
 surya_output_SD_folder = os.path.join(BASE_DIR, "surya_output_SD_folder")  
@@ -105,55 +139,70 @@ SD_Element_hir = os.path.join(BASE_DIR, "SD_Element_hir")
 SD_Text = os.path.join(BASE_DIR, "SD_Text")  
 SD_Drawing_Extraction = os.path.join(BASE_DIR, "SD_Drawing_Extraction")  
 SD_Drawing_Extraction_Binary = os.path.join(BASE_DIR, "SD_Drawing_Extraction_Binary")  
-SD_Drawing_Rebar_extraction =os.path.join(BASE_DIR, "SD_Drawing_Rebar_extraction")  
+SD_Drawing_Rebar_extraction = os.path.join(BASE_DIR, "SD_Drawing_Rebar_extraction")  
 SD_Drawing_image = os.path.join(BASE_DIR, "SD_Drawing_image")
-raw_data_folder_SD_processing_folder = os.path.join(raw_data_folder_SD,"processing_folder")
-
-
-
-
+raw_data_folder_SD_processing_folder = os.path.join(raw_data_folder_SD, "processing_folder")
 
 # ✅ 폴더 생성
-os.makedirs(BASE_DIR, exist_ok=True)
-os.makedirs(raw_data_folder, exist_ok=True)
-os.makedirs(plain_text_folder, exist_ok=True)
-os.makedirs(figure_folder, exist_ok=True)
-os.makedirs(table_folder, exist_ok=True)
-os.makedirs(surya_output_folder, exist_ok=True)
-os.makedirs(filtered_json_folder, exist_ok=True)
-os.makedirs(figure_ocr_output_folder, exist_ok=True)
-os.makedirs(visualized_results_folder,exist_ok=True)
-os.makedirs(figure_filtered_folder, exist_ok=True)
-os.makedirs(figure_element_folder, exist_ok=True)
-os.makedirs(visualized_results_folder, exist_ok=True)
-os.makedirs(OCR_Member_Extraction_folder, exist_ok=True)
-os.makedirs(Figure_Rectangles, exist_ok=True)
-os.makedirs(Figure_Rectangles_Binarized, exist_ok=True)
-os.makedirs(YOLO_Rebar_Detection, exist_ok=True)
-os.makedirs(YOLO_Rebar_Detection_csv, exist_ok=True)
-os.makedirs(raw_data_folder_SD, exist_ok=True)
-os.makedirs(table_extraction_SD, exist_ok=True)
-os.makedirs(surya_output_SD_folder, exist_ok=True)
-os.makedirs(MemberCode_extraction_ALL, exist_ok=True)
-os.makedirs(MemberCode_surya_ocr_SD, exist_ok=True)
-os.makedirs(SD_Element_hir, exist_ok=True)
-os.makedirs(SD_Text, exist_ok=True)
-os.makedirs(SD_Drawing_Extraction, exist_ok=True)
-os.makedirs(SD_Drawing_Extraction_Binary, exist_ok=True)
-os.makedirs(SD_Drawing_Rebar_extraction, exist_ok=True)
-os.makedirs(visualized_results_folder, exist_ok=True)
-os.makedirs(Vertical_image,exist_ok=True)
-os.makedirs(Vertical_txt,exist_ok=True)
-os.makedirs(rotated_crop_folder,exist_ok= True)
-os.makedirs(Element_extraction,exist_ok= True)
-os.makedirs(Table_OCR_Img, exist_ok=True)
-os.makedirs(Table_OCR_surya, exist_ok= True)
-os.makedirs(Table_OCR_surya_filter,exist_ok= True)
-os.makedirs(SD_Drawing_image, exist_ok= True)
-os.makedirs(Vertical_recog_folder, exist_ok= True)
-os.makedirs(image_output_SCD, exist_ok= True)
-os.makedirs(image_output_SD, exist_ok= True)
-os.makedirs(raw_data_folder_SD_processing_folder,exist_ok=True)
+folders_to_create = [
+    BASE_DIR, raw_data_folder, plain_text_folder, figure_folder, table_folder,
+    surya_output_folder, filtered_json_folder, figure_ocr_output_folder,
+    visualized_results_folder, figure_filtered_folder, figure_element_folder,
+    OCR_Member_Extraction_folder, Figure_Rectangles, Figure_Rectangles_Binarized,
+    YOLO_Rebar_Detection, YOLO_Rebar_Detection_csv, raw_data_folder_SD,
+    table_extraction_SD, surya_output_SD_folder, MemberCode_extraction_ALL,
+    MemberCode_surya_ocr_SD, SD_Element_hir, SD_Text, SD_Drawing_Extraction,
+    SD_Drawing_Extraction_Binary, SD_Drawing_Rebar_extraction, Vertical_image,
+    Vertical_txt, rotated_crop_folder, Element_extraction, Table_OCR_Img,
+    Table_OCR_surya, Table_OCR_surya_filter, SD_Drawing_image,
+    Vertical_recog_folder, image_output_SCD, image_output_SD,
+    raw_data_folder_SD_processing_folder
+]
+
+for folder in folders_to_create:
+    os.makedirs(folder, exist_ok=True)
+
+# 임시 폴더 정리 함수 (선택적으로 사용)
+def cleanup_temp_dir():
+    """임시 폴더를 정리합니다."""
+    if 'temp_dir' in st.session_state:
+        try:
+            shutil.rmtree(st.session_state.temp_dir, ignore_errors=True)
+            del st.session_state.temp_dir
+            return True
+        except Exception as e:
+            st.error(f"임시 폴더 정리 중 오류: {e}")
+            return False
+    return False
+
+# 디버깅용: 현재 임시 폴더 경로 확인
+def show_temp_dir_info():
+    """디버깅용 - 현재 임시 폴더 정보를 표시합니다."""
+    if 'temp_dir' in st.session_state:
+        st.info(f"현재 임시 폴더: {st.session_state.temp_dir}")
+        
+        # 폴더 존재 여부 확인
+        if os.path.exists(st.session_state.temp_dir):
+            folder_count = len([f for f in os.listdir(st.session_state.temp_dir) 
+                              if os.path.isdir(os.path.join(st.session_state.temp_dir, f))])
+            st.info(f"생성된 하위 폴더 수: {folder_count}")
+        else:
+            st.warning("임시 폴더가 존재하지 않습니다!")
+
+# 사이드바에 관리 버튼 추가 (선택사항)
+def add_temp_dir_management():
+    """사이드바에 임시 폴더 관리 기능을 추가합니다."""
+    with st.sidebar:
+        st.subheader("🗂️ 임시 폴더 관리")
+        
+        if st.button("📁 폴더 정보 확인"):
+            show_temp_dir_info()
+        
+        if st.button("🗑️ 임시 폴더 정리"):
+            if cleanup_temp_dir():
+                st.success("임시 폴더가 정리되었습니다!")
+                st.rerun()  # 페이지 새로고침으로 새 임시 폴더 생성
+
 # ==========================
 # 저장 폴더 설정
 # ==========================
