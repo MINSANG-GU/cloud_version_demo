@@ -27,4 +27,3 @@ scipy
 scikit-learn
 joblib
 ultralytics
-
