@@ -474,67 +474,88 @@ def apply_yolo_on_images(image_paths=None):
 # ✅ 3. Surya OCR 적용 (진행상황 + 캐시 확인 + 결과 이동)
 def apply_surya_ocr():
     try:
-        st.info("각 모듈의 실제 함수들 확인 중...")
+        import json
+        from PIL import Image
+        from surya.detection import batch_text_detection
+        from surya.recognition import batch_recognition
+        from surya.ocr import run_ocr
         
-        # 각 모듈을 직접 import해서 함수 확인
-        modules_to_check = [
-            'surya.detection',
-            'surya.recognition', 
-            'surya.ocr',
-            'surya.settings'
-        ]
+        st.info("Surya 0.8.3 배치 함수 방식으로 OCR 실행...")
         
-        for module_name in modules_to_check:
+        # 이미지 준비
+        image_files = [f for f in os.listdir(plain_text_folder) if f.endswith('.png')]
+        if not image_files:
+            st.error("처리할 이미지가 없습니다")
+            return
+        
+        test_image = image_files[0]
+        image_path = os.path.join(plain_text_folder, test_image)
+        
+        image = Image.open(image_path)
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
+        
+        st.info("이미지 로드 완료, OCR 실행 중...")
+        
+        # 방법 1: batch 함수들 직접 사용
+        try:
+            st.info("Detection 실행 중...")
+            det_results = batch_text_detection([image])
+            st.success(f"Detection 완료: {len(det_results)} 결과")
+            
+            if det_results:
+                st.info("Recognition 실행 중...")
+                langs = [["en"]]  # 이중 리스트
+                rec_results = batch_recognition([image], det_results, langs)
+                st.success(f"Recognition 완료: {len(rec_results)} 결과")
+                
+                # 결과 저장
+                output_filename = f"{os.path.splitext(test_image)[0]}.json"
+                output_path = os.path.join(surya_output_folder, output_filename)
+                
+                # OCR 결과를 기존 형식으로 변환
+                result_json = {
+                    os.path.splitext(test_image)[0]: [{
+                        "text_lines": [
+                            {
+                                "text": str(line.text if hasattr(line, 'text') else line),
+                                "bbox": line.bbox.tolist() if hasattr(line, 'bbox') and hasattr(line.bbox, 'tolist') else [0, 0, 100, 100]
+                            } for line in rec_results[0]
+                        ]
+                    }]
+                }
+                
+                with open(output_path, 'w', encoding='utf-8') as f:
+                    json.dump(result_json, f, ensure_ascii=False, indent=2)
+                
+                st.success("배치 함수 방식으로 OCR 완료!")
+                return True
+                
+        except Exception as batch_error:
+            st.error(f"배치 함수 방식 실패: {batch_error}")
+            
+            # 방법 2: run_ocr에 None 모델 전달해서 내부 로딩 시도
             try:
-                module = __import__(module_name, fromlist=[''])
-                all_attrs = [attr for attr in dir(module) if not attr.startswith('_')]
-                st.info(f"{module_name} 속성들: {all_attrs}")
+                st.info("run_ocr 내부 모델 로딩 시도...")
+                results = run_ocr(
+                    images=[image],
+                    langs=[["en"]],
+                    det_model=None,  # 내부에서 로드하길 기대
+                    det_processor=None,
+                    rec_model=None,
+                    rec_processor=None
+                )
+                st.success("run_ocr 내부 로딩 성공!")
                 
-                # load 관련 함수 특별히 확인
-                load_funcs = [attr for attr in all_attrs if 'load' in attr.lower()]
-                if load_funcs:
-                    st.success(f"{module_name}의 load 함수들: {load_funcs}")
-                    
-            except Exception as e:
-                st.error(f"{module_name} import 실패: {e}")
+            except Exception as run_ocr_error:
+                st.error(f"run_ocr도 실패: {run_ocr_error}")
+                return False
         
-        # surya.ocr 모듈의 run_ocr 함수 시그니처 다시 확인
-        try:
-            from surya.ocr import run_ocr
-            import inspect
-            sig = inspect.signature(run_ocr)
-            st.info(f"run_ocr 시그니처: {sig}")
-            
-            # 매개변수별 기본값 확인
-            for param_name, param in sig.parameters.items():
-                st.info(f"- {param_name}: {param.default if param.default != inspect.Parameter.empty else 'required'}")
-                
-        except Exception as e:
-            st.error(f"run_ocr 확인 실패: {e}")
-        
-        # 마지막 시도: surya.settings에서 기본 모델 경로 확인
-        try:
-            import surya.settings as settings
-            settings_attrs = [attr for attr in dir(settings) if not attr.startswith('_')]
-            st.info(f"Settings 속성들: {settings_attrs}")
-            
-            # 모델 관련 설정 찾기
-            for attr in settings_attrs:
-                value = getattr(settings, attr)
-                if 'model' in attr.lower() or 'path' in attr.lower():
-                    st.info(f"설정: {attr} = {value}")
-                    
-        except Exception as e:
-            st.error(f"Settings 확인 실패: {e}")
-            
     except Exception as e:
-        st.error(f"모듈 확인 전체 오류: {str(e)}")
-        
-        # 정말 마지막: OCR 없이 진행
-        st.warning("⚠️ OCR 기능을 건너뛰고 다음 단계로 진행하시겠습니까?")
-        if st.button("OCR 건너뛰고 계속"):
-            st.info("OCR 단계를 건너뛰었습니다. 다음 단계를 진행하세요.")
-            return "skipped"
+        st.error(f"OCR 전체 오류: {str(e)}")
+        import traceback
+        st.error(f"상세: {traceback.format_exc()}")
+        return False
 
 
         
