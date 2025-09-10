@@ -479,96 +479,115 @@ def apply_surya_ocr():
     from PIL import Image
     
     try:
-        # Surya OCR Python API import
-        from surya.ocr import run_ocr
-        from surya.model.detection.segformer import load_model as load_det_model, load_processor as load_det_processor  
-        from surya.model.recognition.model_utils import load_model as load_rec_model, load_processor as load_rec_processor
+        st.info("Surya OCR 설치 및 환경 확인 중...")
         
-        st.info("Surya OCR API 모드로 시작...")
+        # 1. 패키지 설치 확인
+        try:
+            import surya
+            st.success(f"✅ surya 패키지 발견: {surya.__file__}")
+            if hasattr(surya, '__version__'):
+                st.info(f"버전: {surya.__version__}")
+        except ImportError as e:
+            st.error(f"❌ surya 패키지 없음: {e}")
+            return
         
-        os.makedirs(surya_output_folder, exist_ok=True)
-
-        # 기존 결과 확인
-        existing_jsons = [f for f in os.listdir(surya_output_folder) if f.endswith(".json")]
-        if existing_jsons:
-            st.info(f"이미 {len(existing_jsons)}개의 OCR 결과가 존재합니다. Surya OCR 생략.")
-            return
-
-        # 이미지 파일 확인
-        image_files = [f for f in os.listdir(plain_text_folder) if f.endswith(('.jpg', '.png'))]
-        if not image_files:
-            st.error("No files to apply OCR")
-            return
-
-        st.info(f"처리할 이미지 파일 수: {len(image_files)}")
-
-        # 모델 로드 (한 번만)
-        st.info("Surya 모델 로딩 중...")
-        det_model = load_det_model()
-        det_processor = load_det_processor()
-        rec_model = load_rec_model()
-        rec_processor = load_rec_processor()
-        st.info("모델 로딩 완료")
-
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-
-        for idx, image_file in enumerate(image_files):
+        # 2. 의존성 패키지 확인
+        dependencies = ['torch', 'transformers', 'cv2', 'PIL']
+        for dep in dependencies:
             try:
-                input_path = os.path.join(plain_text_folder, image_file)
-                st.info(f"OCR 처리 중 [{idx+1}/{len(image_files)}]: {image_file}")
-                
-                # 이미지 로드
-                image = Image.open(input_path)
-                if image.mode != 'RGB':
-                    image = image.convert('RGB')
-                
-                # OCR 실행
-                predictions = run_ocr([image], [det_model], [det_processor], [rec_model], [rec_processor])
-                
-                # 결과를 JSON 형태로 변환
-                result_json = {
-                    image_file.replace('.png', '').replace('.jpg', ''): [
-                        {
-                            "text_lines": [
-                                {
-                                    "text": pred.text,
-                                    "bbox": pred.bbox
-                                } for pred in predictions[0]
-                            ]
-                        }
-                    ]
-                }
-                
-                # JSON 파일로 저장
-                output_filename = f"{os.path.splitext(image_file)[0]}.json"
-                output_path = os.path.join(surya_output_folder, output_filename)
-                
-                with open(output_path, 'w', encoding='utf-8') as f:
-                    json.dump(result_json, f, ensure_ascii=False, indent=2)
-                
-                st.info(f"OCR 완료 및 저장: {output_filename}")
-                
-                progress = int((idx + 1) / len(image_files) * 100)
-                progress_bar.progress(progress)
-                status_text.write(f"running ocr: {image_file} ({progress}%)")
-                
-            except Exception as e:
-                st.error(f"OCR 처리 오류 [{image_file}]: {str(e)}")
-                continue
-
-        progress_bar.empty()
-        status_text.write("OCR complete!")
-        st.success(f"OCR 결과 {len(image_files)}개 파일 처리 완료")
+                if dep == 'cv2':
+                    import cv2
+                    st.success(f"✅ opencv: {cv2.__version__}")
+                elif dep == 'PIL':
+                    from PIL import Image
+                    st.success(f"✅ PIL: {Image.__version__}")
+                else:
+                    module = __import__(dep)
+                    version = getattr(module, '__version__', 'unknown')
+                    st.success(f"✅ {dep}: {version}")
+            except ImportError:
+                st.error(f"❌ {dep} 패키지 없음")
         
-    except ImportError as e:
-        st.error(f"Surya OCR 모듈을 찾을 수 없습니다: {str(e)}")
-        st.error("requirements.txt에 surya-ocr 패키지가 올바르게 설치되었는지 확인하세요.")
+        # 3. Surya 모듈 구조 확인
+        try:
+            import pkgutil
+            surya_modules = []
+            for importer, modname, ispkg in pkgutil.iter_modules(surya.__path__):
+                surya_modules.append(modname)
+            st.info(f"Surya 하위 모듈: {surya_modules}")
+        except Exception as e:
+            st.warning(f"모듈 구조 확인 실패: {e}")
+        
+        # 4. Transformers 캐시 디렉토리 설정 및 확인
+        cache_dir = '/tmp/transformers_cache'
+        os.environ['TRANSFORMERS_CACHE'] = cache_dir
+        os.environ['HF_HOME'] = '/tmp/huggingface'
+        os.makedirs(cache_dir, exist_ok=True)
+        st.info(f"모델 캐시 디렉토리: {cache_dir}")
+        
+        # 5. 모델 다운로드 테스트
+        try:
+            st.info("모델 다운로드 테스트 중...")
+            from transformers import AutoTokenizer
+            # 작은 테스트 모델로 다운로드 확인
+            tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
+            st.success("✅ Hugging Face 모델 다운로드 가능")
+        except Exception as e:
+            st.error(f"❌ 모델 다운로드 실패: {e}")
+            st.warning("Streamlit Cloud에서 모델 다운로드가 제한될 수 있습니다.")
+        
+        # 6. subprocess 명령어 확인
+        surya_cmd = shutil.which("surya_ocr")
+        if surya_cmd:
+            st.success(f"✅ surya_ocr 명령어 발견: {surya_cmd}")
+        else:
+            st.warning("❌ surya_ocr 명령어 없음 - Python API 사용 필요")
+        
+        # 7. 실제 import 테스트
+        try:
+            from surya.ocr import run_ocr
+            st.success("✅ surya.ocr 모듈 import 성공")
+        except ImportError as e:
+            st.error(f"❌ surya.ocr import 실패: {e}")
+            
+        try:
+            from surya.model.detection import batch_text_detection
+            st.success("✅ detection 모듈 import 성공")
+        except ImportError as e:
+            st.warning(f"⚠️ detection import 실패: {e}")
+            
+        # 8. 메모리 및 디스크 공간 확인
+        try:
+            import psutil
+            memory = psutil.virtual_memory()
+            disk = psutil.disk_usage('/')
+            st.info(f"메모리: {memory.available // (1024**3)}GB 사용가능")
+            st.info(f"디스크: {disk.free // (1024**3)}GB 사용가능")
+        except:
+            st.warning("시스템 리소스 확인 실패")
+        
+        # 확인 완료 후 실제 OCR 진행 여부 결정
+        if surya_cmd:
+            st.info("subprocess 방식으로 OCR 진행")
+            return apply_surya_ocr_subprocess()
+        else:
+            st.info("Python API 방식으로 OCR 시도")
+            return apply_surya_ocr_api()
+            
     except Exception as e:
-        st.error(f"apply_surya_ocr API 오류: {str(e)}")
+        st.error(f"환경 확인 중 오류: {str(e)}")
         import traceback
         st.error(f"상세 오류: {traceback.format_exc()}")
 
+def apply_surya_ocr_subprocess():
+    """원래 subprocess 방식"""
+    # 기존 코드 그대로
+    pass
+
+def apply_surya_ocr_api():
+    """Python API 방식"""
+    # API 방식 코드
+    pass
 
 
 
