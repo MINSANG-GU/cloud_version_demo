@@ -249,6 +249,15 @@ def keyword_inputs():
 # ==========================
 # 2) PDF→PNG 변환 함수
 # ==========================
+def get_pdf_page_count(pdf_bytes):
+    """PDF 총 페이지 수 확인"""
+    try:
+        pdf_reader = PyPDF2.PdfReader(io.BytesIO(pdf_bytes))
+        return len(pdf_reader.pages)
+    except:
+        # PyPDF2로 안되면 첫 페이지만 변환해서 추정
+        return 1
+
 def correct_image_simple(image_path):
     """간단하고 빠른 이미지 보정"""
     img = cv2.imread(image_path)
@@ -290,18 +299,116 @@ def correct_image_simple(image_path):
     cv2.imwrite(image_path, img)
     return True
 
-def process_uploaded_images_with_correction(uploaded_pdfs):
-    """PDF 처리 + 자동 이미지 보정 통합"""
-    poppler_path = r"C:\Program Files (x86)\Release-24.08.0-0 (1)\poppler-24.08.0\Library\bin"
-    image_paths = []
+def process_single_pdf_streaming(pdf_bytes, pdf_name, pdf_idx):
+    """단일 PDF를 스트리밍 방식으로 처리"""
+    
+    # 파일 크기 체크
+    file_size_mb = len(pdf_bytes) / (1024 * 1024)
+    st.info(f"📄 {pdf_name} 처리 시작 (크기: {file_size_mb:.1f}MB)")
+    
+    # 총 페이지 수 확인
+    total_pages = get_pdf_page_count(pdf_bytes)
+    st.info(f"총 {total_pages} 페이지")
+    
+    # 파일 크기별 DPI 조정
+    if file_size_mb > 30:
+        dpi = 200  # 큰 파일은 낮은 DPI
+        st.warning("큰 파일로 인해 해상도를 낮춰서 처리합니다.")
+    elif file_size_mb > 15:
+        dpi = 300
+    else:
+        dpi = 400  # 작은 파일은 높은 품질
+    
+    # 진행률 표시
     progress_bar = st.progress(0)
-    status = st.empty()
-    correction_status = st.empty()
+    status_text = st.empty()
+    memory_text = st.empty()
+    
+    processed_images = []
+    
+    # 페이지별 스트리밍 처리
+    for page_num in range(1, total_pages + 1):
+        try:
+            # 메모리 모니터링
+            memory_mb = psutil.Process().memory_info().rss / 1024 / 1024
+            memory_text.text(f"💾 메모리 사용량: {memory_mb:.0f}MB")
+            
+            # 메모리 부족 경고
+            if memory_mb > 800:
+                st.warning(f"⚠️ 메모리 사용량 높음 ({memory_mb:.0f}MB) - 가비지 컬렉션 실행")
+                gc.collect()
+                
+            # 너무 많이 사용하면 DPI 더 낮춤
+            if memory_mb > 900:
+                dpi = max(150, dpi - 50)
+                st.warning(f"DPI를 {dpi}로 낮춥니다.")
+            
+            status_text.text(f"🔄 페이지 {page_num}/{total_pages} 변환 중... (DPI: {dpi})")
+            
+            # 한 페이지씩 변환
+            try:
+                page_images = convert_from_bytes(
+                    pdf_bytes,
+                    first_page=page_num,
+                    last_page=page_num,
+                    dpi=dpi
+                )
+                
+                if page_images:
+                    page_image = page_images[0]
+                    
+                    # 파일 저장
+                    out_path = os.path.join(raw_data_folder, f"SCD_{pdf_idx+1}_page_{page_num}.png")
+                    page_image.save(out_path, "PNG")
+                    
+                    # 즉시 이미지 보정
+                    status_text.text(f"🔧 페이지 {page_num} 보정 중...")
+                    correction_success = correct_image_simple(out_path)
+                    
+                    if correction_success:
+                        # 보정 완료 플래그 생성
+                        correction_flag = out_path.replace('.png', '_corrected.flag')
+                        with open(correction_flag, 'w') as f:
+                            f.write('corrected')
+                    
+                    processed_images.append(out_path)
+                    
+                    # 메모리에서 즉시 제거
+                    del page_image, page_images
+                    gc.collect()
+                    
+            except Exception as e:
+                st.error(f"페이지 {page_num} 처리 실패: {str(e)}")
+                continue
+            
+            # 진행률 업데이트
+            progress_bar.progress(page_num / total_pages)
+            
+        except Exception as e:
+            st.error(f"페이지 {page_num} 전체 처리 실패: {str(e)}")
+            continue
+    
+    progress_bar.progress(1.0)
+    status_text.text(f"✅ {pdf_name} 완료: {len(processed_images)}페이지 처리됨")
+    memory_text.empty()
+    
+    return processed_images
 
+def process_uploaded_images_with_correction(uploaded_pdfs):
+    """PDF 처리 + 자동 이미지 보정 통합 (스트리밍 버전)"""
+    all_image_paths = []
+    
+    # 전체 진행률
+    total_pdfs = len(uploaded_pdfs)
+    overall_progress = st.progress(0)
+    overall_status = st.empty()
+    
     for idx, pdf in enumerate(uploaded_pdfs):
+        overall_status.text(f"📋 전체 진행률: {idx+1}/{total_pdfs} - {pdf.name}")
+        
+        # 기존 이미지 확인
         expected_img_path = os.path.join(raw_data_folder, f"SCD_{idx+1}_page_1.png")
         
-        # 기존 이미지가 있는지 확인
         if os.path.exists(expected_img_path):
             st.info(f"🖼️ {os.path.basename(expected_img_path)} 이미 존재 → 변환 생략")
             existing_imgs = sorted(
@@ -309,15 +416,14 @@ def process_uploaded_images_with_correction(uploaded_pdfs):
                  if f.startswith(f"SCD_{idx+1}_page_") and f.endswith(".png")]
             )
             
-            # 기존 이미지들도 보정 적용 (한 번만)
-            correction_status.text(f"🔧 기존 이미지 보정 중...")
+            # 기존 이미지들 보정 확인
+            correction_status = st.empty()
+            correction_status.text(f"🔧 기존 이미지 보정 확인 중...")
             corrected_count = 0
             for img_path in existing_imgs:
-                # 보정 여부 체크 (파일명에 _corrected 추가하거나 별도 플래그 파일 사용)
                 correction_flag = img_path.replace('.png', '_corrected.flag')
                 if not os.path.exists(correction_flag):
                     if correct_image_simple(img_path):
-                        # 보정 완료 플래그 생성
                         with open(correction_flag, 'w') as f:
                             f.write('corrected')
                         corrected_count += 1
@@ -327,64 +433,45 @@ def process_uploaded_images_with_correction(uploaded_pdfs):
             else:
                 correction_status.text(f"ℹ️ 이미지 보정 이미 완료됨")
                 
-            image_paths.extend(existing_imgs)
-            progress_bar.progress((idx + 1) / len(uploaded_pdfs))
-            continue
-
-        # PDF → PNG 변환
-        status.text(f"📄 {pdf.name} 변환 중...")
-        pages = convert_from_bytes(pdf.getvalue(), dpi=500)
+            all_image_paths.extend(existing_imgs)
+            
+        else:
+            # 스트리밍 방식으로 PDF 처리
+            try:
+                pdf_images = process_single_pdf_streaming(pdf.getvalue(), pdf.name, idx)
+                all_image_paths.extend(pdf_images)
+                
+            except Exception as e:
+                st.error(f"❌ {pdf.name} 처리 실패: {str(e)}")
+                continue
         
-        current_pdf_images = []
-        for pg, img in enumerate(pages):
-            out_path = os.path.join(raw_data_folder, f"SCD_{idx+1}_page_{pg+1}.png")
-            img.save(out_path, "PNG")
-            current_pdf_images.append(out_path)
-            image_paths.append(out_path)
-
-        # 변환 완료 후 즉시 이미지 보정
-        correction_status.text(f"🔧 {pdf.name} 이미지 보정 중...")
-        corrected_count = 0
-        failed_count = 0
-        
-        for img_path in current_pdf_images:
-            if correct_image_simple(img_path):
-                corrected_count += 1
-                # 보정 완료 플래그 생성
-                correction_flag = img_path.replace('.png', '_corrected.flag')
-                with open(correction_flag, 'w') as f:
-                    f.write('corrected')
-            else:
-                failed_count += 1
-
-        correction_status.text(f"✅ {pdf.name}: 보정 성공 {corrected_count}개, 실패 {failed_count}개")
-        progress_bar.progress((idx + 1) / len(uploaded_pdfs))
-        status.text(f"📄 {pdf.name} 완료 ({len(pages)}페이지)")
-
-    st.success(f"✅ 총 {len(image_paths)}개 이미지 처리 완료 (변환 + 보정)")
+        # 전체 진행률 업데이트
+        overall_progress.progress((idx + 1) / total_pdfs)
+    
+    overall_status.text("🎉 모든 PDF 처리 완료!")
+    
+    st.success(f"✅ 총 {len(all_image_paths)}개 이미지 처리 완료 (변환 + 보정)")
     st.markdown("**🔍 처리 결과 요약**")
-    st.code("\n".join(image_paths[:5]), language="text")
+    if all_image_paths:
+        st.code("\n".join(all_image_paths[:5]), language="text")
     
     # 보정 통계 표시
     corrected_files = [f for f in os.listdir(raw_data_folder) if f.endswith('_corrected.flag')]
     if corrected_files:
         st.info(f"🔧 총 {len(corrected_files)}개 이미지가 자동 보정되었습니다.")
     
-    return image_paths
+    return all_image_paths
 
 # 기존 함수 이름을 바꾸고 새 함수를 기본으로 사용
 def process_uploaded_images(uploaded_pdfs):
-    """기본 함수 - 보정 기능 포함"""
+    """기본 함수 - 보정 기능 포함 (스트리밍 버전)"""
     return process_uploaded_images_with_correction(uploaded_pdfs)
 
-# 보정 없이 원본 기능만 원할 때 사용
+# 보정 없이 원본 기능만 원할 때 사용 (스트리밍 버전)
 def process_uploaded_images_original(uploaded_pdfs):
-    """원본 기능 (보정 없음)"""
-    poppler_path = r"C:\Program Files (x86)\Release-24.08.0-0 (1)\poppler-24.08.0\Library\bin"
-    image_paths = []
-    progress_bar = st.progress(0)
-    status = st.empty()
-
+    """원본 기능 (보정 없음, 스트리밍 버전)"""
+    all_image_paths = []
+    
     for idx, pdf in enumerate(uploaded_pdfs):
         expected_img_path = os.path.join(raw_data_folder, f"SCD_{idx+1}_page_1.png")
         if os.path.exists(expected_img_path):
@@ -393,23 +480,47 @@ def process_uploaded_images_original(uploaded_pdfs):
                 [os.path.join(raw_data_folder, f) for f in os.listdir(raw_data_folder)
                  if f.startswith(f"SCD_{idx+1}_page_") and f.endswith(".png")]
             )
-            image_paths.extend(existing_imgs)
-            progress_bar.progress((idx + 1) / len(uploaded_pdfs))
+            all_image_paths.extend(existing_imgs)
             continue
 
-        pages = convert_from_bytes(pdf.getvalue(), dpi=300, poppler_path=poppler_path)
-        for pg, img in enumerate(pages):
-            out_path = os.path.join(raw_data_folder, f"SCD_{idx+1}_page_{pg+1}.png")
-            img.save(out_path, "PNG")
-            image_paths.append(out_path)
+        # 스트리밍 처리 (보정 없음)
+        try:
+            pdf_bytes = pdf.getvalue()
+            total_pages = get_pdf_page_count(pdf_bytes)
+            
+            progress_bar = st.progress(0)
+            status = st.empty()
+            
+            for page_num in range(1, total_pages + 1):
+                status.text(f"📄 {pdf.name} - 페이지 {page_num}/{total_pages}")
+                
+                page_images = convert_from_bytes(
+                    pdf_bytes,
+                    first_page=page_num,
+                    last_page=page_num,
+                    dpi=500  # DPI 500 고정
+                )
+                
+                if page_images:
+                    out_path = os.path.join(raw_data_folder, f"SCD_{idx+1}_page_{page_num}.png")
+                    page_images[0].save(out_path, "PNG")
+                    all_image_paths.append(out_path)
+                    
+                    del page_images
+                    gc.collect()
+                
+                progress_bar.progress(page_num / total_pages)
+            
+            status.text(f"✅ {pdf.name} 완료")
+            
+        except Exception as e:
+            st.error(f"❌ {pdf.name} 처리 실패: {str(e)}")
 
-        progress_bar.progress((idx + 1) / len(uploaded_pdfs))
-        status.text(f"📄 {pdf.name} 변환 완료 ({len(pages)}페이지)")
-
-    st.success(f"✅ total {len(image_paths)} Complete")
-    st.markdown("**🔍 results summary")
-    st.code("\n".join(image_paths[:5]), language="text")
-    return image_paths
+    st.success(f"✅ total {len(all_image_paths)} Complete")
+    st.markdown("**🔍 results summary**")
+    if all_image_paths:
+        st.code("\n".join(all_image_paths[:5]), language="text")
+    return all_image_paths
 
 # ==========================
 # 3) DOCLAYNET-YOLO 적용 함수
