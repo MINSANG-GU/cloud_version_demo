@@ -474,36 +474,70 @@ def apply_yolo_on_images(image_paths=None):
 # ✅ 3. Surya OCR 적용 (진행상황 + 캐시 확인 + 결과 이동)
 def apply_surya_ocr():
     try:
-        # subprocess 대신 Python에서 직접 호출
-        from surya.ocr import run_ocr
-        from surya.model.detection.model import load_model, load_processor
+        import json
         from PIL import Image
+        from surya.ocr import run_ocr
+        from surya.model.detection.model import load_model as load_det_model, load_processor as load_det_processor
+        from surya.model.recognition.model import load_model as load_rec_model, load_processor as load_rec_processor
         
         st.info("Python API 방식으로 OCR 실행")
+        
+        # 모델 로드
+        st.info("모델 로딩 중...")
+        det_model = load_det_model()
+        det_processor = load_det_processor()
+        rec_model = load_rec_model()
+        rec_processor = load_rec_processor()
+        st.info("모델 로딩 완료")
         
         image_files = [f for f in os.listdir(plain_text_folder) if f.endswith('.png')]
         
         for image_file in image_files[:1]:  # 첫 번째만 테스트
             image_path = os.path.join(plain_text_folder, image_file)
+            st.info(f"처리 중: {image_file}")
             
             # 이미지 로드
             image = Image.open(image_path)
+            if image.mode != 'RGB':
+                image = image.convert('RGB')
             
-            # OCR 실행 (API 방식)
-            results = run_ocr([image])
+            # OCR 실행 (올바른 매개변수 전달)
+            results = run_ocr(
+                images=[image],
+                langs=['en'],  # 언어 설정
+                det_model=det_model,
+                det_processor=det_processor,
+                rec_model=rec_model,
+                rec_processor=rec_processor
+            )
             
             # 결과 저장
-            output_path = os.path.join(surya_output_folder, f"{image_file}.json")
-            with open(output_path, 'w') as f:
-                json.dump(results, f)
+            output_filename = f"{os.path.splitext(image_file)[0]}.json"
+            output_path = os.path.join(surya_output_folder, output_filename)
+            
+            # 결과를 기존 형식과 맞춰서 저장
+            result_json = {
+                os.path.splitext(image_file)[0]: [
+                    {
+                        "text_lines": [
+                            {
+                                "text": line.text,
+                                "bbox": line.bbox.tolist() if hasattr(line.bbox, 'tolist') else line.bbox
+                            } for line in results[0]
+                        ]
+                    }
+                ]
+            }
+            
+            with open(output_path, 'w', encoding='utf-8') as f:
+                json.dump(result_json, f, ensure_ascii=False, indent=2)
             
             st.success(f"Python API로 처리 완료: {image_file}")
             
-    except ImportError as e:
-        st.error(f"Surya Python API 사용 불가: {e}")
-        st.info("대안 OCR 라이브러리 고려 필요")
     except Exception as e:
-        st.error(f"Python API 오류: {e}")
+        st.error(f"Python API 오류: {str(e)}")
+        import traceback
+        st.error(f"상세 오류: {traceback.format_exc()}")
 
 
 
