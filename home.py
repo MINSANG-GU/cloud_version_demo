@@ -1,5 +1,5 @@
 import streamlit as st
-from config import setup_sidebar_config, get_raw_data_folder, get_output_folder
+from .config import setup_sidebar_config, get_raw_data_folder, get_output_folder
 
 # 페이지 기본 설정
 st.set_page_config(
@@ -30,4 +30,5 @@ with col1:
     st.info(f"**📁 결과 저장 폴더 **\n`{get_raw_data_folder()}`")
 
 with col2:
+
     st.info(f"**📤 OCR_결과 폴더 **\n`{get_output_folder()}`")
