@@ -474,88 +474,35 @@ def apply_yolo_on_images(image_paths=None):
 # ✅ 3. Surya OCR 적용 (진행상황 + 캐시 확인 + 결과 이동)
 def apply_surya_ocr():
     try:
-        import json
-        import os
-        import inspect
-        from PIL import Image
-        from surya.ocr import run_ocr
-        
-        st.info("실제 surya 모듈 구조 탐색...")
-        
-        # surya 패키지 전체 구조 확인
+        # 0.8.3 버전에서 실제로 사용 가능한 함수들 확인
         import surya
-        surya_path = os.path.dirname(surya.__file__)
-        st.info(f"Surya 설치 경로: {surya_path}")
         
-        # 하위 모듈들 탐색
-        for root, dirs, files in os.walk(surya_path):
-            for file in files:
-                if file.endswith('.py') and ('model' in file or 'load' in file):
-                    relative_path = os.path.relpath(os.path.join(root, file), surya_path)
-                    st.info(f"모델 관련 파일: {relative_path}")
+        # surya 패키지의 모든 하위 모듈 확인
+        import pkgutil
+        available_modules = []
+        for importer, modname, ispkg in pkgutil.iter_modules(surya.__path__, surya.__name__ + "."):
+            available_modules.append(modname)
         
-        # 직접 함수 찾기
-        possible_modules = [
-            'surya.model.detection',
-            'surya.model.recognition', 
-            'surya.detection',
-            'surya.recognition',
-            'surya.model',
-            'surya'
-        ]
+        st.info(f"사용 가능한 surya 모듈들: {available_modules}")
         
-        for module_name in possible_modules:
+        # 각 모듈에서 load 관련 함수 찾기
+        for module_name in available_modules:
             try:
                 module = __import__(module_name, fromlist=[''])
                 functions = [name for name in dir(module) if 'load' in name.lower()]
                 if functions:
-                    st.info(f"{module_name}의 load 함수들: {functions}")
-            except ImportError:
+                    st.info(f"{module_name}의 함수들: {functions}")
+            except:
                 continue
+                
+        # CLI 방식이 작동하지 않으므로 일단 OCR 단계 건너뛰기
+        st.warning("현재 Streamlit Cloud 환경에서 surya OCR 실행에 제약이 있습니다.")
+        st.info("OCR 단계를 건너뛰고 다음 단계를 테스트하거나, 로컬에서 생성된 OCR 결과를 사용하세요.")
         
-        # surya.ocr 모듈에서 사용 가능한 함수들 확인
-        import surya.ocr
-        ocr_functions = [name for name in dir(surya.ocr) if not name.startswith('_')]
-        st.info(f"surya.ocr 사용 가능 함수들: {ocr_functions}")
-        
-        # 최후 수단: 소스코드에서 모델 로드 방법 찾기
-        try:
-            source = inspect.getsource(run_ocr)
-            lines = source.split('\n')[:10]  # 처음 10줄만
-            st.info("run_ocr 함수 시작 부분:")
-            for line in lines:
-                if line.strip():
-                    st.code(line.strip())
-        except:
-            st.warning("소스코드 확인 실패")
-        
-        # 다른 방법: surya CLI 도구가 어떻게 모델을 로드하는지 확인
-        try:
-            import surya.scripts.ocr as cli_ocr
-            cli_functions = [name for name in dir(cli_ocr) if 'load' in name.lower() or 'model' in name.lower()]
-            st.info(f"CLI OCR 모듈 함수들: {cli_functions}")
-        except ImportError:
-            st.warning("CLI OCR 모듈 찾기 실패")
-            
-    except Exception as e:
-        st.error(f"구조 탐색 오류: {str(e)}")
-        
-        # 그냥 subprocess로 돌아가기
-        st.info("Python API 포기하고 subprocess 사용")
-        return apply_safe_subprocess()
-
-def apply_safe_subprocess():
-    """안전한 subprocess 버전"""
-    try:
-        # 매우 간단한 테스트
-        result = subprocess.run(["surya_ocr", "--version"], capture_output=True, text=True, timeout=5)
-        st.info(f"Surya 버전: {result.stdout}")
-        
-        # 실제 OCR은 나중에...
-        st.info("subprocess 방식은 작동하지만 실제 OCR은 보류")
+        return None
         
     except Exception as e:
-        st.error(f"subprocess도 실패: {e}")
+        st.error(f"0.8.3 API 확인 오류: {str(e)}")
 
 
         
