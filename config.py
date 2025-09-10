@@ -1,10 +1,11 @@
 import streamlit as st
 import os
 import json
+import tempfile
 
-# 기본 경로 설정
-DEFAULT_BASE_DIR = r"C:\SCD_Project"
-DEFAULT_OCR_RESULTS_FOLDER = r"C:\SCD_Project\ocr_results"
+# 클라우드용 경로 설정 (리눅스 호환)
+DEFAULT_BASE_DIR = "/tmp/scd_analysis"  # 임시 폴더 사용
+DEFAULT_OCR_RESULTS_FOLDER = "/tmp/scd_analysis/ocr_results"
 CONFIG_FILE = "app_config.json"
 
 def save_config_to_file():
@@ -36,6 +37,13 @@ def init_session_state():
         load_config_from_file()
     if 'ocr_results_folder' not in st.session_state:
         st.session_state.ocr_results_folder = DEFAULT_OCR_RESULTS_FOLDER
+    
+    # 클라우드에서 폴더 자동 생성
+    try:
+        os.makedirs(st.session_state.base_dir, exist_ok=True)
+        os.makedirs(st.session_state.ocr_results_folder, exist_ok=True)
+    except:
+        pass
 
 def get_base_dir():
     """현재 설정된 base directory 반환"""
@@ -48,6 +56,7 @@ def get_ocr_results_folder():
     return st.session_state.ocr_results_folder
 
 def apply_path_changes(base_dir, ocr_results_folder):
+    """경로 변경 적용"""
     try:
         os.makedirs(base_dir, exist_ok=True)
         os.makedirs(ocr_results_folder, exist_ok=True)
@@ -57,7 +66,7 @@ def apply_path_changes(base_dir, ocr_results_folder):
         
         save_config_to_file()
         st.success("✅ 경로가 적용되었습니다!")
-        # st.experimental_rerun() 제거해도 됨
+        # st.experimental_rerun() 제거 - 클라우드에서 문제 될 수 있음
         
     except Exception as e:
         st.error(f"❌ 경로 설정 실패: {str(e)}")
@@ -68,7 +77,7 @@ def reset_to_default():
     st.session_state.ocr_results_folder = DEFAULT_OCR_RESULTS_FOLDER
     save_config_to_file()
     st.success("🔄 기본 경로로 초기화!")
-    st.experimental_rerun()
+    # st.experimental_rerun() 제거
 
 def setup_sidebar_config():
     """사이드바에 경로 설정 추가"""
@@ -78,13 +87,16 @@ def setup_sidebar_config():
         st.markdown("---")
         st.subheader("🔧 경로 설정")
         
+        # 클라우드 환경 안내
+        st.info("💡 클라우드 환경에서는 /tmp/ 경로를 사용합니다")
+        
         # 설정 영역을 expander로 축소 가능하게
         with st.expander("📁 폴더 경로", expanded=False):
             # Base Directory
             new_base_dir = st.text_input(
-                "Base Directory (프로젝트 기본 폴더)",
+                "Base Directory",
                 value=st.session_state.base_dir,
-                help="전체 프로젝트의 기본 폴더",
+                help="클라우드에서는 /tmp/ 경로 권장",
                 key="base_dir_input"
             )
             
@@ -121,9 +133,13 @@ def setup_sidebar_config():
 def get_raw_data_folder():
     """raw_data 폴더 경로 (base_dir 하위)"""
     base = get_base_dir()
-    return os.path.join(base, "raw_data")
+    raw_path = os.path.join(base, "raw_data")
+    os.makedirs(raw_path, exist_ok=True)
+    return raw_path
 
 def get_output_folder():
     """output 폴더 경로 (base_dir 하위)"""
     base = get_base_dir()
-    return os.path.join(base, "output")
+    output_path = os.path.join(base, "output")
+    os.makedirs(output_path, exist_ok=True)
+    return output_path
