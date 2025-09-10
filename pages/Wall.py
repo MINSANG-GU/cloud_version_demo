@@ -60,7 +60,7 @@ import sys, os
 
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import get_base_dir, get_ocr_results_folder
+from app_config import get_base_dir, get_ocr_results_folder
 
 BASE_DIR = get_base_dir()
 SURYA_RESULTS_FOLDER =get_ocr_results_folder()
