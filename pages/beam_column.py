@@ -476,97 +476,82 @@ def apply_surya_ocr():
     try:
         import json
         from PIL import Image
+        from surya.ocr import run_ocr
         
-        st.info("Surya 모듈 구조 확인 중...")
+        st.info("간단한 OCR API 호출 시도...")
         
-        # 다양한 import 경로 시도
-        try:
-            from surya.ocr import run_ocr
-            st.info("surya.ocr import 성공")
-        except ImportError as e:
-            st.error(f"surya.ocr import 실패: {e}")
+        image_files = [f for f in os.listdir(plain_text_folder) if f.endswith('.png')]
+        if not image_files:
+            st.error("처리할 이미지가 없습니다")
             return
         
-        # 모델 로드 함수들 찾기
-        try:
-            from surya.model.detection.model import load_model as load_det_model
-            from surya.model.detection.processor import load_processor as load_det_processor
-            st.info("detection 모델 import 성공")
-        except ImportError:
-            try:
-                from surya.detection import load_model as load_det_model
-                from surya.detection import load_processor as load_det_processor
-                st.info("detection 대체 import 성공")
-            except ImportError as e:
-                st.error(f"detection import 실패: {e}")
-                return
+        # 첫 번째 이미지로 테스트
+        test_image = image_files[0]
+        image_path = os.path.join(plain_text_folder, test_image)
+        st.info(f"테스트 이미지: {test_image}")
         
+        # 이미지 로드
+        image = Image.open(image_path)
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
+        
+        st.info("OCR 실행 중...")
+        
+        # 가장 간단한 호출 시도
         try:
-            from surya.model.recognition.model import load_model as load_rec_model
-            from surya.model.recognition.processor import load_processor as load_rec_processor
-            st.info("recognition 모델 import 성공")
-        except ImportError:
-            try:
-                from surya.recognition import load_model as load_rec_model
-                from surya.recognition import load_processor as load_rec_processor
-                st.info("recognition 대체 import 성공")
-            except ImportError as e:
-                st.warning(f"recognition import 실패: {e}")
-                # recognition 없이 detection만 시도
+            results = run_ocr([image])
+            st.success("기본 run_ocr 호출 성공")
+            st.info(f"결과 타입: {type(results)}")
+            st.info(f"결과 길이: {len(results) if hasattr(results, '__len__') else 'N/A'}")
+            
+        except TypeError as e:
+            if "missing" in str(e):
+                st.info(f"매개변수 부족: {e}")
+                
+                # run_ocr 함수의 시그니처 확인
+                import inspect
+                sig = inspect.signature(run_ocr)
+                st.info(f"run_ocr 함수 시그니처: {sig}")
+                
+                # 필요한 매개변수들을 기본값으로 시도
                 try:
-                    from surya.detection import batch_text_detection
-                    st.info("detection only 모드로 시도")
-                    return apply_detection_only()
-                except ImportError:
-                    st.error("모든 import 실패")
-                    return
-        
-        # 간단한 OCR 시도
-        st.info("모델 로딩 시도...")
-        det_model = load_det_model()
-        det_processor = load_det_processor()
-        rec_model = load_rec_model()
-        rec_processor = load_rec_processor()
-        
-        st.info("OCR 실행...")
-        image_files = [f for f in os.listdir(plain_text_folder) if f.endswith('.png')]
-        
-        if image_files:
-            test_image = image_files[0]
-            image_path = os.path.join(plain_text_folder, test_image)
-            image = Image.open(image_path).convert('RGB')
-            
-            # OCR 실행
-            results = run_ocr(
-                images=[image],
-                langs=['en'],
-                det_model=det_model,
-                det_processor=det_processor,
-                rec_model=rec_model,
-                rec_processor=rec_processor
-            )
-            
-            st.success(f"OCR 성공: {len(results)} 결과")
+                    # 언어만 추가해서 시도
+                    results = run_ocr([image], ['en'])
+                    st.success("언어 매개변수 추가 후 성공")
+                except Exception as e2:
+                    st.error(f"언어 추가해도 실패: {e2}")
+                    
+        except Exception as e:
+            st.error(f"run_ocr 호출 실패: {e}")
             
     except Exception as e:
-        st.error(f"API 오류: {str(e)}")
+        st.error(f"전체 오류: {str(e)}")
+        import traceback
+        st.error(f"상세: {traceback.format_exc()}")
         
-        # 최후 수단: 간단한 API 호출 시도
-        try:
-            st.info("간단한 API 호출 시도...")
-            from surya.ocr import run_ocr
+        # 정말 마지막 수단: subprocess로 돌아가기
+        st.info("Python API 실패로 subprocess 방식으로 돌아갑니다")
+        return apply_surya_ocr_subprocess_safe()
+
+def apply_surya_ocr_subprocess_safe():
+    """안전한 subprocess 버전"""
+    try:
+        image_files = [f for f in os.listdir(plain_text_folder) if f.endswith('.png')]
+        if image_files:
+            test_image = image_files[0]
+            input_path = os.path.join(plain_text_folder, test_image)
             
-            image_files = [f for f in os.listdir(plain_text_folder) if f.endswith('.png')]
-            if image_files:
-                image_path = os.path.join(plain_text_folder, image_files[0])
-                image = Image.open(image_path).convert('RGB')
+            command = ["surya_ocr", input_path]
+            result = subprocess.run(command, capture_output=True, text=True, timeout=30)
+            
+            st.info(f"subprocess 결과: {result.returncode}")
+            if result.stdout:
+                st.text_area("STDOUT", result.stdout)
+            if result.stderr:
+                st.text_area("STDERR", result.stderr)
                 
-                # 최소한의 매개변수로 호출
-                results = run_ocr([image])
-                st.success("간단한 API 호출 성공")
-                
-        except Exception as e2:
-            st.error(f"간단한 API도 실패: {e2}")
+    except Exception as e:
+        st.error(f"subprocess 오류: {e}")
 
 
 
