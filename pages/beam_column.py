@@ -476,101 +476,74 @@ def apply_surya_ocr():
     try:
         import json
         from PIL import Image
+        import gc
+        import os
         
-        st.info("모델 로드 함수 직접 찾기...")
+        st.info("안전한 모델 로드 시도...")
         
-        # 가능한 모델 로드 위치들 확인
-        possible_load_locations = [
-            'surya.model.detection.segformer',
-            'surya.model.recognition.model', 
-            'surya.model.detection.model',
-            'surya.model.recognition.processor',
-            'surya.model.detection.processor',
-            'surya.model',
-            'surya.detection',
-            'surya.recognition'
-        ]
+        # 메모리 사용량 체크
+        try:
+            import psutil
+            memory = psutil.virtual_memory()
+            st.info(f"현재 메모리 사용량: {memory.percent}%")
+            
+            if memory.percent > 80:
+                st.warning("메모리 사용량이 높습니다. OCR을 건너뜁니다.")
+                return False
+        except:
+            pass
         
-        det_model = None
-        det_processor = None
-        rec_model = None  
-        rec_processor = None
+        # 환경 변수로 배치 크기 최소화
+        os.environ['RECOGNITION_BATCH_SIZE'] = '1'
+        os.environ['DETECTOR_BATCH_SIZE'] = '1'
         
-        for location in possible_load_locations:
+        try:
+            # recognition 모델만 우선 로드 시도
+            st.info("Recognition 모델 로드 시도 (메모리 절약 모드)...")
+            from surya.model.recognition.model import load_model as load_rec_model
+            
+            # 타임아웃과 함께 로드
+            import signal
+            
+            def timeout_handler(signum, frame):
+                raise TimeoutError("모델 로드 타임아웃")
+            
+            signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(30)  # 30초 타임아웃
+            
             try:
-                module = __import__(location, fromlist=[''])
-                attrs = [attr for attr in dir(module) if not attr.startswith('_')]
-                load_funcs = [attr for attr in attrs if 'load' in attr.lower()]
+                rec_model = load_rec_model()
+                signal.alarm(0)  # 타임아웃 해제
+                st.success("Recognition 모델 로드 성공!")
                 
-                if load_funcs:
-                    st.info(f"{location}에서 load 함수 발견: {load_funcs}")
-                    
-                    # 실제 load 함수 시도
-                    for func_name in load_funcs:
-                        try:
-                            func = getattr(module, func_name)
-                            if callable(func):
-                                st.info(f"{location}.{func_name} 시도...")
-                                result = func()
-                                st.success(f"{location}.{func_name} 성공!")
-                                
-                                # 모델 타입에 따라 할당
-                                if 'detection' in location and 'model' in func_name.lower():
-                                    det_model = result
-                                elif 'detection' in location and 'processor' in func_name.lower():
-                                    det_processor = result
-                                elif 'recognition' in location and 'model' in func_name.lower():
-                                    rec_model = result
-                                elif 'recognition' in location and 'processor' in func_name.lower():
-                                    rec_processor = result
-                                    
-                        except Exception as func_error:
-                            st.warning(f"{location}.{func_name} 실패: {func_error}")
-                            
-            except ImportError:
-                continue
+                # 메모리 정리
+                gc.collect()
+                
+            except TimeoutError:
+                st.error("모델 로드가 30초를 초과했습니다")
+                return False
             except Exception as e:
-                st.warning(f"{location} 확인 실패: {e}")
-        
-        # 로드된 모델들 확인
-        st.info(f"로드된 모델들:")
-        st.info(f"det_model: {type(det_model) if det_model else 'None'}")
-        st.info(f"det_processor: {type(det_processor) if det_processor else 'None'}")
-        st.info(f"rec_model: {type(rec_model) if rec_model else 'None'}")
-        st.info(f"rec_processor: {type(rec_processor) if rec_processor else 'None'}")
-        
-        # 모든 모델이 로드되었으면 OCR 실행
-        if all([det_model, det_processor, rec_model, rec_processor]):
-            st.info("모든 모델 로드 완료! OCR 실행...")
-            
-            image_files = [f for f in os.listdir(plain_text_folder) if f.endswith('.png')]
-            test_image = image_files[0]
-            image_path = os.path.join(plain_text_folder, test_image)
-            
-            image = Image.open(image_path).convert('RGB')
-            
-            from surya.ocr import run_ocr
-            results = run_ocr(
-                images=[image],
-                langs=[["en"]],
-                det_model=det_model,
-                det_processor=det_processor,
-                rec_model=rec_model,
-                rec_processor=rec_processor
-            )
-            
-            st.success("OCR 성공!")
-            return True
-            
-        else:
-            st.error("필요한 모델들을 모두 로드하지 못했습니다")
-            st.info("현재 Streamlit Cloud에서는 OCR 실행이 어려운 상황입니다")
+                signal.alarm(0)
+                st.error(f"Recognition 모델 로드 실패: {e}")
+                return False
+                
+        except Exception as e:
+            st.error(f"모델 import 실패: {e}")
             return False
-            
+        
+        # OCR 대신 더 간단한 대안 제안
+        st.warning("⚠️ Streamlit Cloud에서 Surya OCR 실행이 어렵습니다")
+        st.info("다음 대안들을 고려해보세요:")
+        st.markdown("""
+        1. **EasyOCR 사용** (더 가벼움)
+        2. **OCR 단계 건너뛰기** (다른 기능 테스트)
+        3. **로컬 환경에서 OCR 실행** 후 결과 업로드
+        """)
+        
+        return False
+        
     except Exception as e:
-        st.error(f"모델 로드 오류: {str(e)}")
-        import traceback
-        st.error(f"상세: {traceback.format_exc()}")
+        st.error(f"안전 모드 오류: {str(e)}")
         return False
 
 
