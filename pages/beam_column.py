@@ -472,14 +472,21 @@ def apply_yolo_on_images(image_paths=None):
 
 
 # ✅ 3. Surya OCR 적용 (진행상황 + 캐시 확인 + 결과 이동)
-
 def apply_surya_ocr():
     import os
     import shutil
+    import json
+    from PIL import Image
     
     try:
-
-        st.info(f"출력 폴더 확인: {surya_output_folder}")
+        # Surya OCR Python API import
+        from surya.ocr import run_ocr
+        from surya.model.detection.segformer import load_model as load_det_model, load_processor as load_det_processor  
+        from surya.model.recognition.model_utils import load_model as load_rec_model, load_processor as load_rec_processor
+        
+        st.info("Surya OCR API 모드로 시작...")
+        
+        os.makedirs(surya_output_folder, exist_ok=True)
 
         # 기존 결과 확인
         existing_jsons = [f for f in os.listdir(surya_output_folder) if f.endswith(".json")]
@@ -487,97 +494,78 @@ def apply_surya_ocr():
             st.info(f"이미 {len(existing_jsons)}개의 OCR 결과가 존재합니다. Surya OCR 생략.")
             return
 
-        # plain_text_folder 존재 및 파일 확인
-        st.info(f"Plain text 폴더 확인: {plain_text_folder}")
-        if not os.path.exists(plain_text_folder):
-            st.error(f"Plain text 폴더가 존재하지 않음: {plain_text_folder}")
-            return
-            
+        # 이미지 파일 확인
         image_files = [f for f in os.listdir(plain_text_folder) if f.endswith(('.jpg', '.png'))]
-        st.info(f"처리할 이미지 파일 수: {len(image_files)}")
-        
         if not image_files:
             st.error("No files to apply OCR")
             return
 
+        st.info(f"처리할 이미지 파일 수: {len(image_files)}")
+
+        # 모델 로드 (한 번만)
+        st.info("Surya 모델 로딩 중...")
+        det_model = load_det_model()
+        det_processor = load_det_processor()
+        rec_model = load_rec_model()
+        rec_processor = load_rec_processor()
+        st.info("모델 로딩 완료")
+
         progress_bar = st.progress(0)
         status_text = st.empty()
-        st.write("Running OCR... (threshold=0.5/0.3)")
-
-        successful_ocr = 0
-        failed_ocr = 0
 
         for idx, image_file in enumerate(image_files):
             try:
                 input_path = os.path.join(plain_text_folder, image_file)
                 st.info(f"OCR 처리 중 [{idx+1}/{len(image_files)}]: {image_file}")
                 
-                # 파일 존재 확인
-                if not os.path.exists(input_path):
-                    st.error(f"파일이 존재하지 않음: {input_path}")
-                    failed_ocr += 1
-                    continue
+                # 이미지 로드
+                image = Image.open(input_path)
+                if image.mode != 'RGB':
+                    image = image.convert('RGB')
                 
-                command = ["surya_ocr", input_path]
-                result = subprocess.run(command, capture_output=True, text=True, timeout=60)
+                # OCR 실행
+                predictions = run_ocr([image], [det_model], [det_processor], [rec_model], [rec_processor])
                 
-                # 결과 확인
-                if result.returncode == 0:
-                    successful_ocr += 1
-                    st.info(f"OCR 성공: {image_file}")
-                else:
-                    failed_ocr += 1
-                    st.error(f"OCR 실패 [{image_file}] - 반환코드: {result.returncode}")
-                    if result.stderr:
-                        st.error(f"오류 메시지: {result.stderr}")
-
-                stderr = result.stderr.strip()
-                if stderr and all(x not in stderr for x in ["Detecting bboxes", "Recognizing Text"]):
-                    st.warning(f"오류: {image_file} → {stderr}")
-
+                # 결과를 JSON 형태로 변환
+                result_json = {
+                    image_file.replace('.png', '').replace('.jpg', ''): [
+                        {
+                            "text_lines": [
+                                {
+                                    "text": pred.text,
+                                    "bbox": pred.bbox
+                                } for pred in predictions[0]
+                            ]
+                        }
+                    ]
+                }
+                
+                # JSON 파일로 저장
+                output_filename = f"{os.path.splitext(image_file)[0]}.json"
+                output_path = os.path.join(surya_output_folder, output_filename)
+                
+                with open(output_path, 'w', encoding='utf-8') as f:
+                    json.dump(result_json, f, ensure_ascii=False, indent=2)
+                
+                st.info(f"OCR 완료 및 저장: {output_filename}")
+                
                 progress = int((idx + 1) / len(image_files) * 100)
                 progress_bar.progress(progress)
                 status_text.write(f"running ocr: {image_file} ({progress}%)")
                 
-            except subprocess.TimeoutExpired:
-                st.error(f"OCR 타임아웃: {image_file}")
-                failed_ocr += 1
             except Exception as e:
                 st.error(f"OCR 처리 오류 [{image_file}]: {str(e)}")
-                failed_ocr += 1
+                continue
 
         progress_bar.empty()
-        status_text.write("OCR complete! Result moving...")
+        status_text.write("OCR complete!")
+        st.success(f"OCR 결과 {len(image_files)}개 파일 처리 완료")
         
-        st.info(f"OCR 완료 - 성공: {successful_ocr}, 실패: {failed_ocr}")
-
-        # 결과 파일 이동
-        st.info(f"Surya 결과 폴더 확인: {SURYA_RESULTS_FOLDER}")
-        if not os.path.exists(SURYA_RESULTS_FOLDER):
-            st.error(f"Surya 결과 폴더가 존재하지 않음: {SURYA_RESULTS_FOLDER}")
-            return
-
-        moved, skipped = 0, 0
-        for folder_name in os.listdir(SURYA_RESULTS_FOLDER):
-            folder_path = os.path.join(SURYA_RESULTS_FOLDER, folder_name)
-            if os.path.isdir(folder_path):
-                json_file = os.path.join(folder_path, "results.json")
-                if os.path.exists(json_file):
-                    dst_file = os.path.join(surya_output_folder, f"{folder_name}.json")
-                    try:
-                        shutil.move(json_file, dst_file)
-                        moved += 1
-                        st.info(f"파일 이동 성공: {folder_name}.json")
-                    except Exception as e:
-                        st.error(f"Move Error: {folder_name} → {e}")
-                else:
-                    skipped += 1
-                    st.warning(f"results.json 파일이 없음: {folder_name}")
-
-        st.success(f"OCR 결과 {moved}개 이동 완료 ({skipped}개는 누락됨)")
-        
+    except ImportError as e:
+        st.error(f"Surya OCR 모듈을 찾을 수 없습니다: {str(e)}")
+        st.error("requirements.txt에 surya-ocr 패키지가 올바르게 설치되었는지 확인하세요.")
     except Exception as e:
-        st.error(f"apply_surya_ocr 전체 오류: {str(e)}")
+        st.error(f"apply_surya_ocr API 오류: {str(e)}")
         import traceback
         st.error(f"상세 오류: {traceback.format_exc()}")
 
