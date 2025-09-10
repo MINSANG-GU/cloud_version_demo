@@ -54,9 +54,13 @@ df_gt_sd_global = None
 
 
 
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config import get_base_dir, get_ocr_results_folder
+
 # ✅ 저장 폴더 설정 (D:\TEST_Streamlit)
-BASE_DIR = r"D:\4parts_complete\beamcolumn"
-SURYA_RESULTS_FOLDER =r"D:\streamlit_app\app\results\surya"
+BASE_DIR = get_base_dir()
+SURYA_RESULTS_FOLDER =get_ocr_results_folder()
 
 
 
