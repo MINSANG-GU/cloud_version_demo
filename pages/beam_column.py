@@ -473,79 +473,113 @@ def apply_yolo_on_images(image_paths=None):
 
 # ✅ 3. Surya OCR 적용 (진행상황 + 캐시 확인 + 결과 이동)
 def apply_surya_ocr():
+    import os
+    import shutil
+    import subprocess
+    
     try:
-        import json
-        from PIL import Image
-        import gc
-        import os
-        
-        st.info("안전한 모델 로드 시도...")
-        
-        # 메모리 사용량 체크
-        try:
-            import psutil
-            memory = psutil.virtual_memory()
-            st.info(f"현재 메모리 사용량: {memory.percent}%")
-            
-            if memory.percent > 80:
-                st.warning("메모리 사용량이 높습니다. OCR을 건너뜁니다.")
-                return False
-        except:
-            pass
-        
-        # 환경 변수로 배치 크기 최소화
+        # 환경변수 설정
+        os.environ['DETECTOR_TEXT_THRESHOLD'] = '0.5'
+        os.environ['DETECTOR_BLANK_THRESHOLD'] = '0.3'
         os.environ['RECOGNITION_BATCH_SIZE'] = '1'
         os.environ['DETECTOR_BATCH_SIZE'] = '1'
+        os.environ['TORCH_DEVICE'] = 'cpu'  # CPU 강제
         
+        os.makedirs(surya_output_folder, exist_ok=True)
+
+        # 기존 결과 확인
+        existing_jsons = [f for f in os.listdir(surya_output_folder) if f.endswith(".json")]
+        if existing_jsons:
+            st.info(f"이미 {len(existing_jsons)}개의 OCR 결과가 존재합니다. Surya OCR 생략.")
+            return
+
+        image_files = [f for f in os.listdir(plain_text_folder) if f.endswith(('.jpg', '.png'))]
+        if not image_files:
+            st.error("No files to apply OCR")
+            return
+
+        st.info(f"처리할 이미지: {len(image_files)}개")
+        
+        # 첫 번째 이미지만 테스트
+        test_image = image_files[0]
+        input_path = os.path.join(plain_text_folder, test_image)
+        
+        st.info(f"테스트 이미지: {test_image}")
+        
+        # 매우 간단한 명령어부터 테스트
         try:
-            # recognition 모델만 우선 로드 시도
-            st.info("Recognition 모델 로드 시도 (메모리 절약 모드)...")
-            from surya.model.recognition.model import load_model as load_rec_model
+            st.info("1단계: surya_ocr --help 테스트")
+            result = subprocess.run(["surya_ocr", "--help"], 
+                                  capture_output=True, text=True, timeout=10)
+            st.info(f"Help 결과: {result.returncode}")
             
-            # 타임아웃과 함께 로드
-            import signal
+        except subprocess.TimeoutExpired:
+            st.error("Help 명령어도 timeout - subprocess 사용 불가")
+            return
+        except Exception as e:
+            st.error(f"Help 명령어 실패: {e}")
+            return
+
+        # 실제 OCR 실행
+        try:
+            st.info("2단계: 실제 OCR 실행")
+            command = ["surya_ocr", input_path]
             
-            def timeout_handler(signum, frame):
-                raise TimeoutError("모델 로드 타임아웃")
+            # 더 긴 timeout과 함께
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
             
-            signal.signal(signal.SIGALRM, timeout_handler)
-            signal.alarm(30)  # 30초 타임아웃
+            # 실시간 진행상황 확인
+            import time
+            timeout = 120  # 2분
+            start_time = time.time()
             
-            try:
-                rec_model = load_rec_model()
-                signal.alarm(0)  # 타임아웃 해제
-                st.success("Recognition 모델 로드 성공!")
+            while process.poll() is None:
+                if time.time() - start_time > timeout:
+                    process.kill()
+                    st.error("OCR이 2분을 초과하여 중단")
+                    return
                 
-                # 메모리 정리
-                gc.collect()
+                time.sleep(1)
+                st.text(f"실행 중... {int(time.time() - start_time)}초 경과")
+            
+            stdout, stderr = process.communicate()
+            
+            st.info(f"OCR 완료 - 반환코드: {process.returncode}")
+            if stdout:
+                st.text_area("STDOUT", stdout[:500])
+            if stderr:
+                st.text_area("STDERR", stderr[:500])
+            
+            # 결과 파일 확인 및 이동
+            if os.path.exists(SURYA_RESULTS_FOLDER):
+                moved = 0
+                for folder_name in os.listdir(SURYA_RESULTS_FOLDER):
+                    folder_path = os.path.join(SURYA_RESULTS_FOLDER, folder_name)
+                    if os.path.isdir(folder_path):
+                        json_file = os.path.join(folder_path, "results.json")
+                        if os.path.exists(json_file):
+                            dst_file = os.path.join(surya_output_folder, f"{folder_name}.json")
+                            shutil.move(json_file, dst_file)
+                            moved += 1
+                            st.info(f"결과 파일 이동: {folder_name}.json")
                 
-            except TimeoutError:
-                st.error("모델 로드가 30초를 초과했습니다")
-                return False
-            except Exception as e:
-                signal.alarm(0)
-                st.error(f"Recognition 모델 로드 실패: {e}")
-                return False
+                if moved > 0:
+                    st.success(f"Subprocess OCR 성공! {moved}개 파일 처리됨")
+                else:
+                    st.warning("OCR은 실행되었지만 결과 파일을 찾을 수 없음")
+            else:
+                st.error("결과 폴더가 생성되지 않음")
                 
         except Exception as e:
-            st.error(f"모델 import 실패: {e}")
-            return False
-        
-        # OCR 대신 더 간단한 대안 제안
-        st.warning("⚠️ Streamlit Cloud에서 Surya OCR 실행이 어렵습니다")
-        st.info("다음 대안들을 고려해보세요:")
-        st.markdown("""
-        1. **EasyOCR 사용** (더 가벼움)
-        2. **OCR 단계 건너뛰기** (다른 기능 테스트)
-        3. **로컬 환경에서 OCR 실행** 후 결과 업로드
-        """)
-        
-        return False
-        
+            st.error(f"OCR 실행 오류: {e}")
+            
     except Exception as e:
-        st.error(f"안전 모드 오류: {str(e)}")
-        return False
-
+        st.error(f"Subprocess OCR 전체 오류: {e}")
 
         
 
