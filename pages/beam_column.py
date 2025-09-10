@@ -475,97 +475,87 @@ def apply_yolo_on_images(image_paths=None):
 def apply_surya_ocr():
     try:
         import json
+        import os
+        import inspect
         from PIL import Image
         from surya.ocr import run_ocr
         
-        st.info("모델 로드 함수 찾는 중...")
+        st.info("실제 surya 모듈 구조 탐색...")
         
-        # 정확한 모델 로드 함수 찾기
-        det_model = None
-        det_processor = None
-        rec_model = None
-        rec_processor = None
+        # surya 패키지 전체 구조 확인
+        import surya
+        surya_path = os.path.dirname(surya.__file__)
+        st.info(f"Surya 설치 경로: {surya_path}")
         
-        # detection 모델 로드 시도
-        try:
-            from surya.model.detection.segformer import load_model as load_det_model
-            from surya.model.detection.segformer import load_processor as load_det_processor
-            det_model = load_det_model()
-            det_processor = load_det_processor()
-            st.success("Detection 모델 로드 성공")
-        except ImportError:
+        # 하위 모듈들 탐색
+        for root, dirs, files in os.walk(surya_path):
+            for file in files:
+                if file.endswith('.py') and ('model' in file or 'load' in file):
+                    relative_path = os.path.relpath(os.path.join(root, file), surya_path)
+                    st.info(f"모델 관련 파일: {relative_path}")
+        
+        # 직접 함수 찾기
+        possible_modules = [
+            'surya.model.detection',
+            'surya.model.recognition', 
+            'surya.detection',
+            'surya.recognition',
+            'surya.model',
+            'surya'
+        ]
+        
+        for module_name in possible_modules:
             try:
-                from surya.detection import load_model as load_det_model, load_processor as load_det_processor
-                det_model = load_det_model()
-                det_processor = load_det_processor()
-                st.success("Detection 모델 대체 경로로 로드 성공")
-            except Exception as e:
-                st.error(f"Detection 모델 로드 실패: {e}")
-                return
+                module = __import__(module_name, fromlist=[''])
+                functions = [name for name in dir(module) if 'load' in name.lower()]
+                if functions:
+                    st.info(f"{module_name}의 load 함수들: {functions}")
+            except ImportError:
+                continue
         
-        # recognition 모델 로드 시도
+        # surya.ocr 모듈에서 사용 가능한 함수들 확인
+        import surya.ocr
+        ocr_functions = [name for name in dir(surya.ocr) if not name.startswith('_')]
+        st.info(f"surya.ocr 사용 가능 함수들: {ocr_functions}")
+        
+        # 최후 수단: 소스코드에서 모델 로드 방법 찾기
         try:
-            from surya.model.recognition.model import load_model as load_rec_model
-            from surya.model.recognition.processor import load_processor as load_rec_processor
-            rec_model = load_rec_model()
-            rec_processor = load_rec_processor()
-            st.success("Recognition 모델 로드 성공")
-        except ImportError:
-            try:
-                from surya.recognition import load_model as load_rec_model, load_processor as load_rec_processor
-                rec_model = load_rec_model()
-                rec_processor = load_rec_processor()
-                st.success("Recognition 모델 대체 경로로 로드 성공")
-            except Exception as e:
-                st.error(f"Recognition 모델 로드 실패: {e}")
-                
-                # recognition 모델 없이 detection만으로 시도
-                st.warning("Recognition 모델 없이 detection만 시도")
-                # 이 경우는 텍스트 인식이 안되고 영역만 검출됨
-                return
+            source = inspect.getsource(run_ocr)
+            lines = source.split('\n')[:10]  # 처음 10줄만
+            st.info("run_ocr 함수 시작 부분:")
+            for line in lines:
+                if line.strip():
+                    st.code(line.strip())
+        except:
+            st.warning("소스코드 확인 실패")
         
-        # 모든 모델이 로드되었으면 OCR 실행
-        if all([det_model, det_processor, rec_model, rec_processor]):
-            st.info("모든 모델 로드 완료, OCR 실행...")
-            
-            image_files = [f for f in os.listdir(plain_text_folder) if f.endswith('.png')]
-            test_image = image_files[0]
-            image_path = os.path.join(plain_text_folder, test_image)
-            
-            image = Image.open(image_path).convert('RGB')
-            
-            # OCR 실행
-            results = run_ocr(
-                images=[image],
-                langs=[['en']],  # 이중 리스트로 시도
-                det_model=det_model,
-                det_processor=det_processor,
-                rec_model=rec_model,
-                rec_processor=rec_processor
-            )
-            
-            st.success(f"OCR 성공! 결과: {len(results)}개")
-            
-            # 결과 저장
-            output_filename = f"{os.path.splitext(test_image)[0]}.json"
-            output_path = os.path.join(surya_output_folder, output_filename)
-            
-            # 결과 구조 확인
-            st.info(f"결과 타입: {type(results[0])}")
-            
-            # 간단한 결과 저장
-            with open(output_path, 'w', encoding='utf-8') as f:
-                json.dump({"ocr_results": str(results)}, f, ensure_ascii=False)
-            
-            st.success("Python API OCR 완료!")
-            
-        else:
-            st.error("필요한 모델들을 로드할 수 없어 subprocess로 돌아갑니다")
+        # 다른 방법: surya CLI 도구가 어떻게 모델을 로드하는지 확인
+        try:
+            import surya.scripts.ocr as cli_ocr
+            cli_functions = [name for name in dir(cli_ocr) if 'load' in name.lower() or 'model' in name.lower()]
+            st.info(f"CLI OCR 모듈 함수들: {cli_functions}")
+        except ImportError:
+            st.warning("CLI OCR 모듈 찾기 실패")
             
     except Exception as e:
-        st.error(f"Python API 오류: {str(e)}")
-        import traceback
-        st.error(f"상세: {traceback.format_exc()}")
+        st.error(f"구조 탐색 오류: {str(e)}")
+        
+        # 그냥 subprocess로 돌아가기
+        st.info("Python API 포기하고 subprocess 사용")
+        return apply_safe_subprocess()
+
+def apply_safe_subprocess():
+    """안전한 subprocess 버전"""
+    try:
+        # 매우 간단한 테스트
+        result = subprocess.run(["surya_ocr", "--version"], capture_output=True, text=True, timeout=5)
+        st.info(f"Surya 버전: {result.stdout}")
+        
+        # 실제 OCR은 나중에...
+        st.info("subprocess 방식은 작동하지만 실제 OCR은 보류")
+        
+    except Exception as e:
+        st.error(f"subprocess도 실패: {e}")
 
 
         
