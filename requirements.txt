@@ -27,3 +27,4 @@ scipy==1.15.2
 scikit-learn==1.7.0
 joblib==1.5.1
 ultralytics==8.3.169
+psutil
