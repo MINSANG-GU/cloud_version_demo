@@ -49,7 +49,7 @@ from openpyxl.worksheet.pagebreak import Break
 import sys, os
 import tempfile
 import psutil
-
+import gc
 
 
 df_gt_scd_global = None
