@@ -66,35 +66,121 @@ def main():
             st.error(f"❌ 기본 라이브러리 실패: {str(e)}")
             st.code(traceback.format_exc())
 
-    # 2단계: Surya 모듈 임포트 테스트
-    st.subheader("2️⃣ Surya 모듈 임포트 테스트")
-    if st.button("Surya 모듈 임포트", key="surya_import"):
+    # 2단계: 패키지 설치 확인
+    st.subheader("2️⃣ Surya 패키지 설치 확인")
+    if st.button("설치된 패키지 확인", key="package_check"):
+        try:
+            import pkg_resources
+            installed_packages = {d.project_name: d.version for d in pkg_resources.working_set}
+            
+            # Surya 관련 패키지 찾기
+            surya_packages = {name: version for name, version in installed_packages.items() 
+                            if 'surya' in name.lower()}
+            
+            st.write("🔍 Surya 관련 설치된 패키지:")
+            if surya_packages:
+                for pkg, ver in surya_packages.items():
+                    st.success(f"✅ {pkg}: {ver}")
+            else:
+                st.error("❌ Surya 관련 패키지를 찾을 수 없습니다")
+            
+            # 전체 패키지 개수
+            st.write(f"📦 총 설치된 패키지: {len(installed_packages)}개")
+            
+            # surya 모듈 직접 확인
+            st.write("\n🔍 surya 모듈 구조 확인:")
+            try:
+                import surya
+                st.success(f"✅ surya 패키지 임포트 성공")
+                st.write(f"📍 surya 위치: {surya.__file__}")
+                
+                # surya 하위 모듈들 확인
+                import os
+                surya_dir = os.path.dirname(surya.__file__)
+                submodules = [f for f in os.listdir(surya_dir) 
+                            if os.path.isdir(os.path.join(surya_dir, f)) and not f.startswith('__')]
+                st.write(f"📁 surya 하위 모듈들: {submodules}")
+                
+                # __all__ 속성 확인
+                if hasattr(surya, '__all__'):
+                    st.write(f"🔧 surya.__all__: {surya.__all__}")
+                
+            except ImportError as e:
+                st.error(f"❌ surya 패키지 임포트 실패: {e}")
+                
+        except Exception as e:
+            st.error(f"❌ 패키지 확인 실패: {str(e)}")
+            st.code(traceback.format_exc())
+
+    # 3단계: 개별 모듈 임포트 테스트
+    st.subheader("3️⃣ 개별 Surya 모듈 임포트 테스트")
+    if st.button("개별 모듈 테스트", key="individual_import"):
         memory_start = get_memory_usage()
         st.write(f"🔄 시작 메모리: {memory_start:.2f} GB")
         
-        try:
-            # Surya 모듈들 임포트
-            from surya.ocr import run_ocr
-            from surya.input.load import load_from_folder, load_from_file
-            from surya.model.detection.model import load_model as load_det_model, load_processor as load_det_processor
-            from surya.model.recognition.model import load_model as load_rec_model
-            from surya.model.recognition.processor import load_processor as load_rec_processor
-            from surya.postprocessing.text import draw_text_on_image
+        modules_to_test = [
+            ("surya", "기본 패키지"),
+            ("surya.ocr", "OCR 모듈"),
+            ("surya.input", "Input 모듈"),
+            ("surya.input.load", "Load 모듈"),
+            ("surya.model", "Model 모듈"),
+            ("surya.model.detection", "Detection 모듈"),
+            ("surya.model.recognition", "Recognition 모듈"),
+            ("surya.postprocessing", "Postprocessing 모듈")
+        ]
+        
+        success_count = 0
+        for module_name, description in modules_to_test:
+            try:
+                __import__(module_name)
+                st.success(f"✅ {description} ({module_name})")
+                success_count += 1
+            except ImportError as e:
+                st.error(f"❌ {description} ({module_name}): {e}")
+            except Exception as e:
+                st.warning(f"⚠️ {description} ({module_name}): {e}")
+        
+        st.write(f"📊 성공률: {success_count}/{len(modules_to_test)}")
+        
+        memory_end = get_memory_usage()
+        st.write(f"📊 현재 메모리: {memory_end:.2f} GB (+{memory_end-memory_start:.2f} GB)")
+
+    # 4단계: 함수별 임포트 테스트  
+    st.subheader("4️⃣ 구체적 함수 임포트 테스트")
+    if st.button("함수 임포트 테스트", key="function_import"):
+        memory_start = get_memory_usage()
+        st.write(f"🔄 시작 메모리: {memory_start:.2f} GB")
+        
+        functions_to_test = [
+            ("surya.ocr", "run_ocr", "OCR 실행 함수"),
+            ("surya.input.load", "load_from_folder", "폴더 로딩"),
+            ("surya.input.load", "load_from_file", "파일 로딩"),
+            ("surya.model.detection.model", "load_model", "Detection 모델"),
+            ("surya.model.detection.model", "load_processor", "Detection 프로세서"),
+            ("surya.model.recognition.model", "load_model", "Recognition 모델"),
+            ("surya.model.recognition.processor", "load_processor", "Recognition 프로세서")
+        ]
+        
+        success_functions = []
+        for module_name, func_name, description in functions_to_test:
+            try:
+                module = __import__(module_name, fromlist=[func_name])
+                func = getattr(module, func_name)
+                st.success(f"✅ {description}: {module_name}.{func_name}")
+                success_functions.append(f"{module_name}.{func_name}")
+            except ImportError as e:
+                st.error(f"❌ {description}: 모듈 {module_name} 임포트 실패 - {e}")
+            except AttributeError as e:
+                st.error(f"❌ {description}: 함수 {func_name} 없음 - {e}")
+            except Exception as e:
+                st.warning(f"⚠️ {description}: 기타 오류 - {e}")
+        
+        st.write(f"📊 성공한 함수들:")
+        for func in success_functions:
+            st.write(f"  - {func}")
             
-            st.success("✅ Surya 모듈 임포트 성공!")
-            st.write("📦 성공적으로 임포트된 모듈:")
-            st.write("- OCR 실행 함수")
-            st.write("- 입력 로딩 함수")
-            st.write("- Detection 모델 & 프로세서")  
-            st.write("- Recognition 모델 & 프로세서")
-            st.write("- 후처리 함수")
-            
-            memory_end = get_memory_usage()
-            st.write(f"📊 현재 메모리: {memory_end:.2f} GB (+{memory_end-memory_start:.2f} GB)")
-            
-        except Exception as e:
-            st.error(f"❌ Surya 모듈 임포트 실패: {str(e)}")
-            st.code(traceback.format_exc())
+        memory_end = get_memory_usage()
+        st.write(f"📊 현재 메모리: {memory_end:.2f} GB (+{memory_end-memory_start:.2f} GB)")
 
     # 5단계: 모델 로딩 테스트 (위험)
     st.subheader("5️⃣ 모델 로딩 테스트 ⚠️")
@@ -160,8 +246,10 @@ def main():
     with col1:
         st.subheader("✅ 성공 기준")
         st.write("- **1단계 성공**: 기본 ML 라이브러리 사용 가능")
-        st.write("- **2단계 성공**: Surya 라이브러리 사용 가능") 
-        st.write("- **3단계 성공**: 실제 OCR 작업 수행 가능")
+        st.write("- **2단계 성공**: Surya 패키지 제대로 설치됨") 
+        st.write("- **3단계 성공**: Surya 모듈들 사용 가능")
+        st.write("- **4단계 성공**: Surya 함수들 사용 가능")
+        st.write("- **5단계 성공**: 실제 OCR 작업 수행 가능")
         
     with col2:
         st.subheader("📊 메모리 기준")
@@ -173,8 +261,10 @@ def main():
     st.info("""
     💡 **테스트 순서**:
     1. 먼저 '기본 라이브러리 테스트' 실행
-    2. 성공하면 'Surya 모듈 임포트' 실행  
-    3. 메모리가 충분하면 '모델 로딩 테스트' 실행 (선택)
+    2. '설치된 패키지 확인'으로 surya-ocr 설치 상태 점검
+    3. '개별 모듈 테스트'로 어느 모듈에서 문제 생기는지 확인
+    4. '함수 임포트 테스트'로 사용 가능한 함수들 확인
+    5. 메모리가 충분하면 '모델 로딩 테스트' 실행 (선택)
     
     ⚠️ **주의사항**: 
     - 각 단계에서 메모리 사용량을 꼭 확인하세요
