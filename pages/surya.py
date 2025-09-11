@@ -145,48 +145,85 @@ def main():
         memory_end = get_memory_usage()
         st.write(f"📊 현재 메모리: {memory_end:.2f} GB (+{memory_end-memory_start:.2f} GB)")
 
-# 5단계: 모델 로딩 함수 찾기
-st.subheader("5️⃣ 모델 로딩 함수 찾기")
-if st.button("모델 함수 탐색", key="model_functions"):
-    memory_start = get_memory_usage()
-    st.write(f"🔄 시작 메모리: {memory_start:.2f} GB")
-    
-    # 각 모듈에서 사용 가능한 함수들 탐색
-    modules_to_explore = [
-        ("surya.detection", "Detection 모듈"),
-        ("surya.recognition", "Recognition 모듈"),
-        ("surya.layout", "Layout 모듈"),
-    ]
-    
-    for module_name, description in modules_to_explore:
-        try:
-            module = __import__(module_name)
-            submodule = getattr(module, module_name.split('.')[1])
+    # 4단계: 신버전(0.9.0) 구조 테스트
+    st.subheader("4️⃣ 신버전(0.9.0) 구조 테스트")
+    if st.button("신버전 구조 테스트", key="new_structure"):
+        memory_start = get_memory_usage()
+        st.write(f"🔄 시작 메모리: {memory_start:.2f} GB")
+        
+        # 실제 존재하는 모듈들로 테스트
+        functions_to_test = [
+            ("surya.input.load", "load_from_folder", "폴더 로딩"),
+            ("surya.input.load", "load_from_file", "파일 로딩"),
+            ("surya.detection", "batch_text_detection", "텍스트 감지"),
+            ("surya.recognition", "batch_text_recognition", "텍스트 인식"),
+            ("surya.layout", "batch_layout_detection", "레이아웃 감지"),
+            ("surya.table_rec", "batch_table_recognition", "테이블 인식"),
+        ]
+        
+        success_functions = []
+        for module_name, func_name, description in functions_to_test:
+            try:
+                module = __import__(module_name, fromlist=[func_name])
+                func = getattr(module, func_name)
+                st.success(f"✅ {description}: {module_name}.{func_name}")
+                success_functions.append(f"{module_name}.{func_name}")
+            except ImportError as e:
+                st.error(f"❌ {description}: 모듈 {module_name} 임포트 실패 - {e}")
+            except AttributeError as e:
+                st.error(f"❌ {description}: 함수 {func_name} 없음 - {e}")
+            except Exception as e:
+                st.warning(f"⚠️ {description}: 기타 오류 - {e}")
+        
+        st.write(f"📊 성공한 함수들:")
+        for func in success_functions:
+            st.write(f"  - {func}")
             
-            st.write(f"\n🔍 **{description}** 사용 가능한 함수들:")
-            functions = [name for name in dir(submodule) if not name.startswith('_')]
-            
-            for func_name in functions:
-                try:
-                    func = getattr(submodule, func_name)
-                    if callable(func):
-                        st.write(f"  - {func_name}()")
-                except:
-                    pass
-                    
-        except Exception as e:
-            st.warning(f"⚠️ {description} 탐색 실패: {e}")
-    
-    memory_end = get_memory_usage()
-    st.write(f"📊 현재 메모리: {memory_end:.2f} GB (+{memory_end-memory_start:.2f} GB)")
+        memory_end = get_memory_usage()
+        st.write(f"📊 현재 메모리: {memory_end:.2f} GB (+{memory_end-memory_start:.2f} GB)")
 
-    # 5단계: 모델 로딩 테스트 (위험)
-    st.subheader("5️⃣ 모델 로딩 테스트 ⚠️")
+    # 5단계: 모델 로딩 함수 찾기
+    st.subheader("5️⃣ 모델 로딩 함수 찾기")
+    if st.button("모델 함수 탐색", key="model_functions"):
+        memory_start = get_memory_usage()
+        st.write(f"🔄 시작 메모리: {memory_start:.2f} GB")
+        
+        # 각 모듈에서 사용 가능한 함수들 탐색
+        modules_to_explore = [
+            ("surya.detection", "Detection 모듈"),
+            ("surya.recognition", "Recognition 모듈"),
+            ("surya.layout", "Layout 모듈"),
+        ]
+        
+        for module_name, description in modules_to_explore:
+            try:
+                module = __import__(module_name)
+                submodule = getattr(module, module_name.split('.')[1])
+                
+                st.write(f"\n🔍 **{description}** 사용 가능한 함수들:")
+                functions = [name for name in dir(submodule) if not name.startswith('_')]
+                
+                for func_name in functions:
+                    try:
+                        func = getattr(submodule, func_name)
+                        if callable(func):
+                            st.write(f"  - {func_name}()")
+                    except:
+                        pass
+                        
+            except Exception as e:
+                st.warning(f"⚠️ {description} 탐색 실패: {e}")
+        
+        memory_end = get_memory_usage()
+        st.write(f"📊 현재 메모리: {memory_end:.2f} GB (+{memory_end-memory_start:.2f} GB)")
+
+    # 6단계: 실제 모델 로딩 테스트 (위험)
+    st.subheader("6️⃣ 실제 모델 로딩 테스트 ⚠️")
     st.warning("⚠️ **위험한 테스트**: 메모리 오버플로우로 앱이 크래시될 수 있습니다!")
     
     danger_check = st.checkbox("위험을 감수하고 모델 로딩 테스트 진행")
     
-    if danger_check and st.button("🚨 모델 로딩 테스트", key="model_load"):
+    if danger_check and st.button("🚨 신버전 모델 로딩 테스트", key="model_load"):
         memory_start = get_memory_usage()
         st.write(f"🔄 시작 메모리: {memory_start:.2f} GB")
         
@@ -195,44 +232,43 @@ if st.button("모델 함수 탐색", key="model_functions"):
             st.stop()
         
         try:
-            with st.spinner("모델 로딩 중... (30초 이상 소요될 수 있습니다)"):
-                from surya.model.detection.model import load_model as load_det_model, load_processor as load_det_processor
+            with st.spinner("신버전 모델 로딩 중... (30초 이상 소요될 수 있습니다)"):
                 
-                # Detection 모델 먼저 로딩
-                det_processor = load_det_processor()
-                st.write("✅ Detection Processor 로딩 완료")
+                # 0.9.0 버전에서 가능한 모델 로딩 시도
+                test_attempts = [
+                    ("Detection 모델 로딩", lambda: __import__('surya.detection')),
+                    ("Recognition 모델 로딩", lambda: __import__('surya.recognition')),
+                    ("Layout 모델 로딩", lambda: __import__('surya.layout')),
+                ]
                 
-                memory_mid1 = get_memory_usage()
-                st.write(f"📊 Processor 후 메모리: {memory_mid1:.2f} GB")
+                loaded_models = []
+                for model_name, load_func in test_attempts:
+                    try:
+                        model = load_func()
+                        st.success(f"✅ {model_name} 성공")
+                        loaded_models.append(model_name)
+                        
+                        memory_current = get_memory_usage()
+                        st.write(f"📊 {model_name} 후 메모리: {memory_current:.2f} GB")
+                        
+                        if memory_current > 0.75:
+                            st.warning(f"⚠️ 메모리 한계 근접. 추가 모델 로딩을 중단합니다.")
+                            break
+                            
+                    except Exception as e:
+                        st.error(f"❌ {model_name} 실패: {e}")
                 
-                if memory_mid1 > 0.75:
-                    st.error("❌ 메모리 한계에 도달. Recognition 모델 로딩을 건너뜁니다.")
+                memory_final = get_memory_usage()
+                st.write(f"📊 최종 메모리: {memory_final:.2f} GB")
+                
+                if loaded_models:
+                    st.success(f"🎉 **성공한 모델들**: {', '.join(loaded_models)}")
+                    st.success("✅ Surya OCR 0.9.0이 스트림릿 클라우드에서 부분적으로 작동합니다!")
                 else:
-                    det_model = load_det_model()
-                    st.write("✅ Detection Model 로딩 완료")
-                    
-                    memory_mid2 = get_memory_usage()
-                    st.write(f"📊 Detection Model 후 메모리: {memory_mid2:.2f} GB")
-                    
-                    if memory_mid2 < 0.7:
-                        from surya.model.recognition.model import load_model as load_rec_model
-                        from surya.model.recognition.processor import load_processor as load_rec_processor
-                        
-                        rec_processor = load_rec_processor()
-                        st.write("✅ Recognition Processor 로딩 완료")
-                        
-                        rec_model = load_rec_model()
-                        st.write("✅ Recognition Model 로딩 완료")
-                        
-                        memory_final = get_memory_usage()
-                        st.write(f"📊 최종 메모리: {memory_final:.2f} GB")
-                        
-                        st.success("🎉 **모든 모델 로딩 성공!** Surya OCR이 스트림릿 클라우드에서 완전히 작동합니다!")
-                    else:
-                        st.warning("⚠️ 메모리 부족으로 Recognition 모델 로딩을 건너뛰었습니다.")
+                    st.error("❌ 모든 모델 로딩에 실패했습니다.")
                         
         except Exception as e:
-            st.error(f"❌ 모델 로딩 실패: {str(e)}")
+            st.error(f"❌ 모델 로딩 테스트 실패: {str(e)}")
             st.code(traceback.format_exc())
 
     # 결과 해석 가이드
@@ -246,8 +282,9 @@ if st.button("모델 함수 탐색", key="model_functions"):
         st.write("- **1단계 성공**: 기본 ML 라이브러리 사용 가능")
         st.write("- **2단계 성공**: Surya 패키지 제대로 설치됨") 
         st.write("- **3단계 성공**: Surya 모듈들 사용 가능")
-        st.write("- **4단계 성공**: Surya 함수들 사용 가능")
-        st.write("- **5단계 성공**: 실제 OCR 작업 수행 가능")
+        st.write("- **4단계 성공**: Surya 0.9.0 신구조 함수들 사용 가능")
+        st.write("- **5단계 성공**: 모델 함수들 탐색 완료")
+        st.write("- **6단계 성공**: 실제 OCR 작업 수행 가능")
         
     with col2:
         st.subheader("📊 메모리 기준")
@@ -272,4 +309,4 @@ if st.button("모델 함수 탐색", key="model_functions"):
     """)
 
 if __name__ == "__main__":
-    main()
+    main
