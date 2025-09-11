@@ -145,42 +145,40 @@ def main():
         memory_end = get_memory_usage()
         st.write(f"📊 현재 메모리: {memory_end:.2f} GB (+{memory_end-memory_start:.2f} GB)")
 
-    # 4단계: 함수별 임포트 테스트  
-    st.subheader("4️⃣ 구체적 함수 임포트 테스트")
-    if st.button("함수 임포트 테스트", key="function_import"):
-        memory_start = get_memory_usage()
-        st.write(f"🔄 시작 메모리: {memory_start:.2f} GB")
-        
-        functions_to_test = [
-            ("surya.ocr", "run_ocr", "OCR 실행 함수"),
-            ("surya.input.load", "load_from_folder", "폴더 로딩"),
-            ("surya.input.load", "load_from_file", "파일 로딩"),
-            ("surya.model.detection.model", "load_model", "Detection 모델"),
-            ("surya.model.detection.model", "load_processor", "Detection 프로세서"),
-            ("surya.model.recognition.model", "load_model", "Recognition 모델"),
-            ("surya.model.recognition.processor", "load_processor", "Recognition 프로세서")
-        ]
-        
-        success_functions = []
-        for module_name, func_name, description in functions_to_test:
-            try:
-                module = __import__(module_name, fromlist=[func_name])
-                func = getattr(module, func_name)
-                st.success(f"✅ {description}: {module_name}.{func_name}")
-                success_functions.append(f"{module_name}.{func_name}")
-            except ImportError as e:
-                st.error(f"❌ {description}: 모듈 {module_name} 임포트 실패 - {e}")
-            except AttributeError as e:
-                st.error(f"❌ {description}: 함수 {func_name} 없음 - {e}")
-            except Exception as e:
-                st.warning(f"⚠️ {description}: 기타 오류 - {e}")
-        
-        st.write(f"📊 성공한 함수들:")
-        for func in success_functions:
-            st.write(f"  - {func}")
+# 5단계: 모델 로딩 함수 찾기
+st.subheader("5️⃣ 모델 로딩 함수 찾기")
+if st.button("모델 함수 탐색", key="model_functions"):
+    memory_start = get_memory_usage()
+    st.write(f"🔄 시작 메모리: {memory_start:.2f} GB")
+    
+    # 각 모듈에서 사용 가능한 함수들 탐색
+    modules_to_explore = [
+        ("surya.detection", "Detection 모듈"),
+        ("surya.recognition", "Recognition 모듈"),
+        ("surya.layout", "Layout 모듈"),
+    ]
+    
+    for module_name, description in modules_to_explore:
+        try:
+            module = __import__(module_name)
+            submodule = getattr(module, module_name.split('.')[1])
             
-        memory_end = get_memory_usage()
-        st.write(f"📊 현재 메모리: {memory_end:.2f} GB (+{memory_end-memory_start:.2f} GB)")
+            st.write(f"\n🔍 **{description}** 사용 가능한 함수들:")
+            functions = [name for name in dir(submodule) if not name.startswith('_')]
+            
+            for func_name in functions:
+                try:
+                    func = getattr(submodule, func_name)
+                    if callable(func):
+                        st.write(f"  - {func_name}()")
+                except:
+                    pass
+                    
+        except Exception as e:
+            st.warning(f"⚠️ {description} 탐색 실패: {e}")
+    
+    memory_end = get_memory_usage()
+    st.write(f"📊 현재 메모리: {memory_end:.2f} GB (+{memory_end-memory_start:.2f} GB)")
 
     # 5단계: 모델 로딩 테스트 (위험)
     st.subheader("5️⃣ 모델 로딩 테스트 ⚠️")
