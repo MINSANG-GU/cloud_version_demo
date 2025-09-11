@@ -96,8 +96,8 @@ def main():
             st.error(f"❌ Surya 모듈 임포트 실패: {str(e)}")
             st.code(traceback.format_exc())
 
-    # 3단계: 모델 로딩 테스트 (위험)
-    st.subheader("3️⃣ 모델 로딩 테스트 ⚠️")
+    # 5단계: 모델 로딩 테스트 (위험)
+    st.subheader("5️⃣ 모델 로딩 테스트 ⚠️")
     st.warning("⚠️ **위험한 테스트**: 메모리 오버플로우로 앱이 크래시될 수 있습니다!")
     
     danger_check = st.checkbox("위험을 감수하고 모델 로딩 테스트 진행")
